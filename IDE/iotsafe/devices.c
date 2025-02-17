@@ -1,6 +1,6 @@
 /* devices.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -62,10 +62,10 @@ static void usart1_init(void)
     GPIO_MODE(GPIOB_BASE) = reg | (0x02 << (USART1_PIN_TX * 2));
 
     reg = GPIO_PUPD(GPIOG_BASE) & (0x03 << (USART1_PIN_RX * 2));
-    
+
     reg = GPIO_PUPD(GPIOB_BASE) & (0x03 << (USART1_PIN_TX * 2));
     GPIO_PUPD(GPIOB_BASE) = reg | (0x01 << (USART1_PIN_TX * 2));
-    
+
 #if RTSCTS
     reg = GPIO_MODE(GPIOG_BASE) & ~(0x03 << (USART1_PIN_RTS * 2));
     GPIO_MODE(GPIOG_BASE) = reg | (0x02 << (USART1_PIN_RTS * 2));
@@ -150,7 +150,6 @@ int usart_rx(uint32_t dev, uint8_t *c)
 
 int usart_init(uint32_t dev, uint32_t bitrate, uint8_t data, char parity, uint8_t stop)
 {
-    uint32_t reg;
     int rtscts = 0;
 
     if (dev == USART1_BASE) {
@@ -219,7 +218,6 @@ int usart_init(uint32_t dev, uint32_t bitrate, uint8_t data, char parity, uint8_
 int _write(void *r, uint8_t *text, int len)
 {
     char *p = (char *)text;
-    int i;
     (void)r;
     while(*p && (p < (char *)(text + len))) {
         usart_tx(USART2_BASE, *p);
@@ -378,7 +376,7 @@ static void stmod_pin_init(void)
     /* RST pin */
     reg = GPIO_MODE(STMOD_MODEM_RST_PORT) & ~(0x03 << (STMOD_MODEM_RST_PIN * 2));
     GPIO_MODE(STMOD_MODEM_RST_PORT) = reg | (0x01 << (STMOD_MODEM_RST_PIN * 2));
-    
+
     /* DTR pin */
     reg = GPIO_MODE(STMOD_MODEM_DTR_PORT) & ~(0x03 << (STMOD_MODEM_DTR_PIN * 2));
     GPIO_MODE(STMOD_MODEM_DTR_PORT) = reg | (0x01 << (STMOD_MODEM_DTR_PIN * 2));

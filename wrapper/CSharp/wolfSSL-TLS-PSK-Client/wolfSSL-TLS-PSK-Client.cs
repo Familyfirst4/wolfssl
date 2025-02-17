@@ -1,6 +1,6 @@
 /* wolfSSL-TLS-PSK-Client.cs
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -18,6 +18,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
+
 
 
 
@@ -54,7 +55,7 @@ public class wolfSSL_TLS_PSK_Client
             return 0;
         Marshal.Copy(id, 0, identity, 9);
 
-        /* Use desired key, note must be a key smaller than max key size parameter 
+        /* Use desired key, note must be a key smaller than max key size parameter
             Replace this with desired key. Is trivial one for testing */
         if (max_key < 4)
             return 0;
@@ -81,7 +82,11 @@ public class wolfSSL_TLS_PSK_Client
 
         wolfssl.psk_client_delegate psk_cb = new wolfssl.psk_client_delegate(my_psk_client_cb);
 
-        StringBuilder dhparam = new StringBuilder("dh2048.pem");
+        StringBuilder dhparam = new StringBuilder(wolfssl.setPath("dh2048.pem"));
+        if (dhparam.Length == 0) {
+            Console.WriteLine("Platform not supported");
+            return;
+        }
 
         StringBuilder buff = new StringBuilder(1024);
         StringBuilder reply = new StringBuilder("Hello, this is the wolfSSL C# client psk wrapper");
@@ -153,6 +158,12 @@ public class wolfSSL_TLS_PSK_Client
             Console.WriteLine(wolfssl.get_error(ssl));
             tcp.Close();
             clean(ssl, ctx);
+            return;
+        }
+
+        if (!File.Exists(dhparam.ToString())) {
+            Console.WriteLine("Could not find dh file");
+            wolfssl.CTX_free(ctx);
             return;
         }
 

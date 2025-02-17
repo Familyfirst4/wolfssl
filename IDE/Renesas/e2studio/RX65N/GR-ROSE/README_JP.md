@@ -30,10 +30,10 @@ Renesas社製MCU RX65Nを搭載した評価ボードGR-ROSEをターゲットと
 |:--|:--|
 |評価ボード|GR-ROSE|
 |Device|R5F565NEHxFP|
-|IDE| Renesas e2Studio Version:2022-01 |
+|IDE| Renesas e2Studio Version:2024-04 (24.4.0) |
 |エミュレーター| E1, E2エミュレーターLite |
-|Toolchain|CCRX v3.04.00|
-|TSIP| TSIP v1.15|
+|Toolchain|CCRX v3.06.00|
+|TSIP| TSIP v1.21|
 <br>
 
 本サンプルプログラムのプロジェクトには以下のFITコンポーネントを使用する設定ファイルが用意されています。
@@ -50,10 +50,7 @@ Renesas社製MCU RX65Nを搭載した評価ボードGR-ROSEをターゲットと
 |Generic system timer for RX MCUs|1.01|r_sys_time_rx|
 |TCP/IP protocol stack[M3S-T4-Tiny] - RX Ethernet Driver Interface|1.09|r_t4_driver_rx|
 |TCP/IP protocol stack[M3S-T4-Tiny] for Renesas MCUs|2.10|r_t4_rx|
-|TSIP(Trusted Secure IP) driver|1.15.l|r_tsip_rx|
-
-（注意）2022年4月現在、TIPSv1.15はFITコンポーネントとしてスマートコンフィギュレータパースペクティブのコンポーネントの追加操作では追加できないようです。後ほど説明する手動での追加方法を使って追加してください。<br>
-
+|TSIP(Trusted Secure IP) driver|1.21|r_tsip_rx|
 
 <br><br>
 
@@ -145,7 +142,7 @@ testアプリケーションのビルドの準備が整ったので、ビルド�
 
 ### 8.1 testアプリケーションのサポートするTLSバージョン
 <br>
-TSIPv1.15以降を使用する場合には、これまでのTLS1.2に加えてTLS1.3プロトコルが使用できます。{board-name-folder}/common/user_settings.hに既定で以下のマクロ定義が設定されています。
+TLS1.2に加えてTLS1.3プロトコルが使用できます。{board-name-folder}/common/user_settings.hに既定で以下のマクロ定義が設定されています。
 <br><br>
 
 ```
@@ -186,7 +183,7 @@ testアプリケーションでは、TLSバージョンと証明書のタイプ�
 |:--|:--|:--|
 |TLS1.3|RSA/ECDSA証明書|  |
 |||TLS_AES_128_GCM_SHA256|
-|||TLS_AES_128_CCM_SHA256| 
+|||TLS_AES_128_CCM_SHA256|
 |TLS1.2|RSA証明書|
 |||TLS_RSA_WITH_AES_128_CBC_SHA|
 |||TLS_RSA_WITH_AES_256_CBC_SHA|
@@ -246,7 +243,7 @@ $ make
 <br><br>
 
 ```
-$ examples/server/server -b -v4 -i
+$ examples/server/server -b -v 4 -i
 ```
 <br>
 testアプリケーションには、サーバーアプリケーションに割り当てられたIPアドレスを指定します。
@@ -300,19 +297,46 @@ Received: I hear you fa shizzle!
 
 <br>
 
-## 10. 制限事項
+## 10. クライアント認証を行うための必要事項
+-----
 
-TSIPv1.15をサポートしたwolfSSLでは以下の機能制限があります。
+クライアント認証機能は以下のようにサポートしています。
+-	ECDSA証明書あるいはRSA証明書はTSIPを使って処理します。
+
+
+(1) クライアント証明書のロード
+wolfSSL_CTX_use_certificate_buffer あるいはwolfSSL_CTX_use_certificate_chain_buffer_format を使ってクライアント証明書をロードしてください。
+
+(2) クライアント秘密鍵/公開鍵のロード
+
+クライアント証明書の種類に応じてロードすべき鍵が決まります。以下に従って必要な鍵をロードしてください。
+
+a) ECDSA証明書の場合：
+- tsip_use_PrivateKey_bufferを使って秘密鍵をロードしてください。
+
+b) RSA証明書の場合：
+- tsip_use_PrivateKey_bufferを使って秘密鍵をロードしてください。
+- tsip_use_PublicKey_bufferを使って公開鍵をロードしてください。
+
+RSA証明書の場合には署名処理を内部で検証する目的で公開鍵も使用します。その為に、公開鍵のロードが必要です。
+
+(3) encrypted keyの作成
+
+鍵ロードすべき秘密鍵あるいは公開鍵はRensas　Secure Flash ProgrammerあるいはSecurityKeyManagementToolを使って出力されたencrypted keyを渡してください。encrypted keyの作成方法はアプリケーションノート“RXファミリ TSIPモジュールFirmware Integration Technology” の7.1.4”encrypted key, encrypted provisioning keyの使用方法“に説明されています。
+
+(4) 必要なマクロ定義
+
+user_settings.hにWOLF_PRIVATE_KEY_IDの定義を行ってください。
+
+
+<br>
+
+## 11. 制限事項
+-----
+TSIPv1.21をサポートしたwolfSSLでは以下の機能制限があります。
 
 1. TLSハンドシェーク中にサーバーと交換したメッセージパケットが平文でメモリ上に蓄積されています。これはハンドシェークメッセージのハッシュ計算に使用されます。内容はセッション終了時に削除されます。
 
-1. TLS1.2ではTSIPを使ったクライアント認証機能をサポートしていません。
-wolfSSL_CTX_use_certificate_buffer あるいはwolfSSL_CTX_use_certificate_chain_buffer_format を使ってクライアント証明書をロードし、wolfSSL_CTX_use_PrivateKey_bufferを使って秘密鍵をロードしてください。ソフトウエアで処理を行います。
+2. TSIPを使ってのセッション再開およびearly dataはサポートされません。
 
-1. TLS1.3ではTSIPを使ったクライアント認証機能はECDSAクライアント証明書の場合にのみサポートされます。RSA証明書の場合はソフトウエアでの処理となります。
-
-1. TLS1.3ではTSIPを使ったサーバー認証機能のうち、CertificateVerifyメッセージの検証はソフトウエアでの処理となります。
-
-1. TSIPを使ってのセッション再開およびearly dataはサポートされません。
-
-上記制限1 ~ 4は次版以降のTSIPによって改善が見込まれています。
+上記制限事項は次版以降のTSIPあるいはwolfSSLによって改善が見込まれています。

@@ -1,6 +1,6 @@
 /* conf.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -133,7 +133,7 @@ WOLFSSL_TXT_DB *wolfSSL_TXT_DB_read(WOLFSSL_BIO *in, int num)
             XFREE(strBuf, NULL, DYNAMIC_TYPE_OPENSSL);
             goto error;
         }
-        if (wolfSSL_sk_push(ret->data, strBuf) != WOLFSSL_SUCCESS) {
+        if (wolfSSL_sk_push(ret->data, strBuf) <= 0) {
             WOLFSSL_MSG("wolfSSL_sk_push error");
             XFREE(strBuf, NULL, DYNAMIC_TYPE_OPENSSL);
             goto error;
@@ -143,12 +143,10 @@ WOLFSSL_TXT_DB *wolfSSL_TXT_DB_read(WOLFSSL_BIO *in, int num)
     failed = 0;
 error:
     if (failed && ret) {
-        XFREE(ret, NULL, DYNAMIC_TYPE_OPENSSL);
+        wolfSSL_TXT_DB_free(ret);
         ret = NULL;
     }
-    if (buf) {
-        XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-    }
+    XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return ret;
 }
 
@@ -158,7 +156,6 @@ long wolfSSL_TXT_DB_write(WOLFSSL_BIO *out, WOLFSSL_TXT_DB *db)
     long totalLen = 0;
     char buf[512]; /* Should be more than enough for a single row */
     char* bufEnd = buf + sizeof(buf);
-    int sz;
     int i;
 
     WOLFSSL_ENTER("wolfSSL_TXT_DB_write");
@@ -172,6 +169,7 @@ long wolfSSL_TXT_DB_write(WOLFSSL_BIO *out, WOLFSSL_TXT_DB *db)
     while (data) {
         char** fields = (char**)data->data.string;
         char* idx = buf;
+        int sz;
 
         if (!fields) {
             WOLFSSL_MSG("Missing row");
@@ -204,7 +202,10 @@ long wolfSSL_TXT_DB_write(WOLFSSL_BIO *out, WOLFSSL_TXT_DB *db)
                 return WOLFSSL_FAILURE;
             }
         }
-        idx[-1] = '\n';
+        if (idx > buf)
+            idx[-1] = '\n';
+        else
+            return WOLFSSL_FAILURE;
         sz = (int)(idx - buf);
 
         if (wolfSSL_BIO_write(out, buf, sz) != sz) {
@@ -228,7 +229,7 @@ int wolfSSL_TXT_DB_insert(WOLFSSL_TXT_DB *db, WOLFSSL_STRING *row)
         return WOLFSSL_FAILURE;
     }
 
-    if (wolfSSL_sk_push(db->data, row) != WOLFSSL_SUCCESS) {
+    if (wolfSSL_sk_push(db->data, row) <= 0) {
         WOLFSSL_MSG("wolfSSL_sk_push error");
         return WOLFSSL_FAILURE;
     }
@@ -248,10 +249,11 @@ void wolfSSL_TXT_DB_free(WOLFSSL_TXT_DB *db)
 }
 
 int wolfSSL_TXT_DB_create_index(WOLFSSL_TXT_DB *db, int field,
-        void* qual, wolf_sk_hash_cb hash, wolf_sk_compare_cb cmp)
+        void* qual, wolf_sk_hash_cb hash, wolf_lh_compare_cb cmp)
 {
     WOLFSSL_ENTER("wolfSSL_TXT_DB_create_index");
     (void)qual;
+    (void)cmp;
 
     if (!db || !hash || !cmp || field >= db->num_fields || field < 0) {
         WOLFSSL_MSG("Bad parameter");
@@ -259,7 +261,6 @@ int wolfSSL_TXT_DB_create_index(WOLFSSL_TXT_DB *db, int field,
     }
 
     db->hash_fn[field] = hash;
-    db->comp[field] = cmp;
 
     return WOLFSSL_SUCCESS;
 }
@@ -274,21 +275,18 @@ WOLFSSL_STRING *wolfSSL_TXT_DB_get_by_index(WOLFSSL_TXT_DB *db, int idx,
         return NULL;
     }
 
-    if (!db->hash_fn[idx] || !db->comp[idx]) {
-        WOLFSSL_MSG("Missing hash or cmp functions");
+    if (!db->hash_fn[idx]) {
+        WOLFSSL_MSG("Missing hash functions");
         return NULL;
     }
 
-    /* If first data struct has correct hash and cmp function then
-     * assume others do too */
-    if (db->data->hash_fn != db->hash_fn[idx] ||
-            db->data->comp != db->comp[idx]) {
+    /* If first data struct has correct hash function
+     * then assume others do too */
+    if (db->data->hash_fn != db->hash_fn[idx]) {
         /* Set the hash and comp functions */
         WOLF_STACK_OF(WOLFSSL_STRING)* data = db->data;
         while (data) {
-            if (data->comp != db->comp[idx] ||
-                    data->hash_fn != db->hash_fn[idx]) {
-                data->comp = db->comp[idx];
+            if (data->hash_fn != db->hash_fn[idx]) {
                 data->hash_fn = db->hash_fn[idx];
                 data->hash = 0;
             }
@@ -333,33 +331,7 @@ static unsigned long wolfSSL_CONF_VALUE_hash(const WOLFSSL_CONF_VALUE *val)
         return 0;
 }
 
-static int wolfssl_conf_value_cmp(const WOLFSSL_CONF_VALUE *a,
-                                  const WOLFSSL_CONF_VALUE *b)
-{
-    int cmp_val;
-
-    if (!a || !b) {
-        return WOLFSSL_FATAL_ERROR;
-    }
-
-    if (a->section != b->section) {
-        if ((cmp_val = XSTRCMP(a->section, b->section)) != 0) {
-            return cmp_val;
-        }
-    }
-
-    if (a->name && b->name) {
-        return XSTRCMP(a->name, b->name);
-    }
-    else if (a->name == b->name) {
-        return 0;
-    }
-    else {
-        return a->name ? 1 : -1;
-    }
-}
-
-/* Use SHA for hashing as OpenSSL uses a hash algorithm that is
+/* Use SHA[256] for hashing as OpenSSL uses a hash algorithm that is
  * "not as good as MD5, but still good" so using SHA should be more
  * than good enough for this application. The produced hashes don't
  * need to line up between OpenSSL and wolfSSL. The hashes are for
@@ -367,19 +339,21 @@ static int wolfssl_conf_value_cmp(const WOLFSSL_CONF_VALUE *a,
 unsigned long wolfSSL_LH_strhash(const char *str)
 {
     unsigned long ret = 0;
-#ifndef NO_SHA
-    wc_Sha sha;
     int strLen;
+#if !defined(NO_SHA)
+    wc_Sha sha;
     byte digest[WC_SHA_DIGEST_SIZE];
+#elif !defined(NO_SHA256)
+    wc_Sha256 sha;
+    byte digest[WC_SHA256_DIGEST_SIZE];
 #endif
     WOLFSSL_ENTER("wolfSSL_LH_strhash");
 
     if (!str)
         return 0;
-
-#ifndef NO_SHA
     strLen = (int)XSTRLEN(str);
 
+#if !defined(NO_SHA)
     if (wc_InitSha_ex(&sha, NULL, 0) != 0) {
         WOLFSSL_MSG("SHA1 Init failed");
         return 0;
@@ -395,6 +369,25 @@ unsigned long wolfSSL_LH_strhash(const char *str)
         }
     }
     wc_ShaFree(&sha);
+#elif !defined(NO_SHA256)
+    if (wc_InitSha256_ex(&sha, NULL, 0) != 0) {
+        WOLFSSL_MSG("SHA256 Init failed");
+        return 0;
+    }
+
+    ret = wc_Sha256Update(&sha, (const byte *)str, (word32)strLen);
+    if (ret != 0) {
+        WOLFSSL_MSG("SHA256 Update failed");
+    } else {
+        ret = wc_Sha256Final(&sha, digest);
+        if (ret != 0) {
+            WOLFSSL_MSG("SHA256 Final failed");
+        }
+    }
+    wc_Sha256Free(&sha);
+#endif
+
+#if !defined(NO_SHA) || !defined(NO_SHA256)
     if (ret != 0)
         return 0;
 
@@ -460,12 +453,13 @@ int wolfSSL_CONF_add_string(WOLFSSL_CONF *conf,
     sk = (WOLF_STACK_OF(WOLFSSL_CONF_VALUE) *)section->value;
     value->section = section->section;
 
-    if (wolfSSL_sk_CONF_VALUE_push(sk, value) != WOLFSSL_SUCCESS) {
+    if (wolfSSL_sk_CONF_VALUE_push(sk, value) <= 0) {
         WOLFSSL_MSG("wolfSSL_sk_CONF_VALUE_push error");
         return WOLFSSL_FAILURE;
     }
-    if (wolfSSL_sk_CONF_VALUE_push(conf->data, value) != WOLFSSL_SUCCESS) {
+    if (wolfSSL_sk_CONF_VALUE_push(conf->data, value) <= 0) {
         WOLFSSL_MSG("wolfSSL_sk_CONF_VALUE_push error");
+        wolfssl_sk_pop_type(sk, STACK_TYPE_CONF_VALUE);
         return WOLFSSL_FAILURE;
     }
 
@@ -506,7 +500,7 @@ WOLFSSL_CONF_VALUE *wolfSSL_CONF_new_section(WOLFSSL_CONF *conf,
 
     ret->value = (char*)sk;
 
-    if (wolfSSL_sk_CONF_VALUE_push(conf->data, ret) != WOLFSSL_SUCCESS) {
+    if (wolfSSL_sk_CONF_VALUE_push(conf->data, ret) <= 0) {
         WOLFSSL_MSG("wolfSSL_sk_CONF_VALUE_push error");
         goto error;
     }
@@ -612,7 +606,7 @@ char *wolfSSL_NCONF_get_string(const WOLFSSL_CONF *conf,
         return NULL;
 }
 
-int wolfSSL_NCONF_get_number(const CONF *conf, const char *group,
+int wolfSSL_NCONF_get_number(const WOLFSSL_CONF *conf, const char *group,
         const char *name, long *result)
 {
     char *str;
@@ -751,7 +745,7 @@ static char* expandValue(WOLFSSL_CONF *conf, const char* section,
                     strIdx += 2;
                     startIdx = strIdx;
                 }
-                while (*strIdx && (XISALNUM(*strIdx) || *strIdx == '_'))
+                while (*strIdx && (XISALNUM((unsigned char)*strIdx) || *strIdx == '_'))
                     strIdx++;
                 endIdx = strIdx;
                 if (startIdx == endIdx) {
@@ -779,8 +773,18 @@ static char* expandValue(WOLFSSL_CONF *conf, const char* section,
                     /* This will allocate slightly more memory than necessary
                      * but better be safe */
                     strLen += valueLen;
+                #ifdef WOLFSSL_NO_REALLOC
+                    newRet = (char*)XMALLOC(strLen + 1, NULL,
+                            DYNAMIC_TYPE_OPENSSL);
+                    if (newRet != NULL && ret != NULL) {
+                       XMEMCPY(newRet, ret, (strLen - valueLen) + 1);
+                       XFREE(ret, NULL, DYNAMIC_TYPE_OPENSSL);
+                       ret = NULL;
+                    }
+                #else
                     newRet = (char*)XREALLOC(ret, strLen + 1, NULL,
                             DYNAMIC_TYPE_OPENSSL);
+                #endif
                     if (!newRet) {
                         WOLFSSL_MSG("realloc error");
                         goto expand_cleanup;
@@ -800,8 +804,7 @@ static char* expandValue(WOLFSSL_CONF *conf, const char* section,
     return ret ? ret : str;
 
 expand_cleanup:
-    if (ret)
-        XFREE(ret, NULL, DYNAMIC_TYPE_OPENSSL);
+    XFREE(ret, NULL, DYNAMIC_TYPE_OPENSSL);
     return NULL;
 }
 
@@ -810,7 +813,7 @@ expand_cleanup:
         {(idx)++;}
 int wolfSSL_NCONF_load(WOLFSSL_CONF *conf, const char *file, long *eline)
 {
-    int ret = WOLFSSL_FAILURE;
+    int ret = WC_NO_ERR_TRACE(WOLFSSL_FAILURE);
     WOLFSSL_BIO *in = NULL;
     char* buf = NULL;
     char* idx = NULL;
@@ -926,7 +929,7 @@ int wolfSSL_NCONF_load(WOLFSSL_CONF *conf, const char *file, long *eline)
             value = idx;
             /* Find end of value */
             idx = maxIdx-1;
-            while (idx >= value && (*idx == ' ' || *idx == '\t'))
+            while (idx >= value && (*idx == ' ' || *idx == '\t' || *idx == '\r'))
                 idx--;
             valueLen = (int)(idx - value + 1);
 
@@ -956,6 +959,7 @@ int wolfSSL_NCONF_load(WOLFSSL_CONF *conf, const char *file, long *eline)
 
             if (wolfSSL_CONF_add_string(conf, section, newVal) !=
                     WOLFSSL_SUCCESS) {
+                wolfSSL_X509V3_conf_free(newVal);
                 WOLFSSL_MSG("wolfSSL_CONF_add_string error");
                 goto cleanup;
             }
@@ -967,8 +971,7 @@ int wolfSSL_NCONF_load(WOLFSSL_CONF *conf, const char *file, long *eline)
 cleanup:
     if (in)
         wolfSSL_BIO_free(in);
-    if (buf)
-        XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (eline)
         *eline = line;
     return ret;
@@ -992,13 +995,11 @@ void wolfSSL_X509V3_conf_free(WOLFSSL_CONF_VALUE *val)
         if (val->name) {
             /* Not a section. Don't free section as it is a shared pointer. */
             XFREE(val->name, NULL, DYNAMIC_TYPE_OPENSSL);
-            if (val->value)
-                XFREE(val->value, NULL, DYNAMIC_TYPE_OPENSSL);
+            XFREE(val->value, NULL, DYNAMIC_TYPE_OPENSSL);
         }
         else {
             /* Section so val->value is a stack */
-            if (val->section)
-                XFREE(val->section, NULL, DYNAMIC_TYPE_OPENSSL);
+            XFREE(val->section, NULL, DYNAMIC_TYPE_OPENSSL);
             /* Only free the stack structures. The contained conf values
              * will be freed in wolfSSL_NCONF_free */
             sk = (WOLF_STACK_OF(WOLFSSL_CONF_VALUE)*)val->value;
@@ -1012,16 +1013,17 @@ void wolfSSL_X509V3_conf_free(WOLFSSL_CONF_VALUE *val)
     }
 }
 
-WOLFSSL_STACK *wolfSSL_sk_CONF_VALUE_new(wolf_sk_compare_cb compFunc)
+WOLFSSL_STACK *wolfSSL_sk_CONF_VALUE_new(
+    WOLF_SK_COMPARE_CB(WOLFSSL_CONF_VALUE, compFunc))
 {
     WOLFSSL_STACK* ret;
     WOLFSSL_ENTER("wolfSSL_sk_CONF_VALUE_new");
     ret = wolfSSL_sk_new_node(NULL);
     if (!ret)
         return NULL;
-    ret->comp = compFunc ? compFunc : (wolf_sk_compare_cb)wolfssl_conf_value_cmp;
     ret->hash_fn = (wolf_sk_hash_cb)wolfSSL_CONF_VALUE_hash;
     ret->type = STACK_TYPE_CONF_VALUE;
+    (void)compFunc;
     return ret;
 }
 
@@ -1117,9 +1119,8 @@ void wolfSSL_CONF_CTX_free(WOLFSSL_CONF_CTX* cctx)
 {
     WOLFSSL_ENTER("wolfSSL_CONF_CTX_free");
 
-    if (cctx) {
-        XFREE(cctx, NULL, DYNAMIC_TYPE_OPENSSL);
-    }
+    XFREE(cctx, NULL, DYNAMIC_TYPE_OPENSSL);
+
     WOLFSSL_LEAVE("wolfSSL_CONF_CTX_free", 1);
 }
 /**
@@ -1144,7 +1145,7 @@ void wolfSSL_CONF_CTX_set_ssl_ctx(WOLFSSL_CONF_CTX* cctx, WOLFSSL_CTX *ctx)
 /**
  * set flag value into WOLFSSL_CONF_CTX
  * @param cctx  a pointer to WOLFSSL_CONF_CTX structure to be set
- * @param flags falg value to be OR'd
+ * @param flags flag value to be OR'd
  * @return OR'd flag value, otherwise 0
  */
 unsigned int wolfSSL_CONF_CTX_set_flags(WOLFSSL_CONF_CTX* cctx,
@@ -1506,10 +1507,9 @@ static const conf_cmd_tbl* wolfssl_conf_find_cmd(WOLFSSL_CONF_CTX* cctx,
                                          const char* cmd)
 {
     size_t i = 0;
-    size_t cmdlen = 0;
 
     if (cctx->flags & WOLFSSL_CONF_FLAG_CMDLINE) {
-        cmdlen = XSTRLEN(cmd);
+        size_t cmdlen = XSTRLEN(cmd);
 
         if (cmdlen < 2) {
             WOLFSSL_MSG("bad cmdline command");
@@ -1552,7 +1552,7 @@ static const conf_cmd_tbl* wolfssl_conf_find_cmd(WOLFSSL_CONF_CTX* cctx,
  */
 int wolfSSL_CONF_cmd(WOLFSSL_CONF_CTX* cctx, const char* cmd, const char* value)
 {
-    int ret = WOLFSSL_FAILURE;
+    int ret = WC_NO_ERR_TRACE(WOLFSSL_FAILURE);
     const conf_cmd_tbl* confcmd = NULL;
     WOLFSSL_ENTER("wolfSSL_CONF_cmd");
 
@@ -1586,7 +1586,7 @@ int wolfSSL_CONF_cmd(WOLFSSL_CONF_CTX* cctx, const char* cmd, const char* value)
  * @param cctx a pointer to WOLFSSL_CONF_CTX structure
  * @param cmd  configuration command
  * @return The SSL_CONF_TYPE_* type or SSL_CONF_TYPE_UNKNOWN if an
- *         unvalid command
+ *         invalid command
  */
 int wolfSSL_CONF_cmd_value_type(WOLFSSL_CONF_CTX *cctx, const char *cmd)
 {
@@ -1595,7 +1595,7 @@ int wolfSSL_CONF_cmd_value_type(WOLFSSL_CONF_CTX *cctx, const char *cmd)
 
     confcmd = wolfssl_conf_find_cmd(cctx, cmd);
     if (confcmd == NULL)
-        return SSL_CONF_TYPE_UNKNOWN;
+        return WOLFSSL_CONF_TYPE_UNKNOWN;
     return (int)confcmd->data_type;
 }
 
@@ -1605,5 +1605,34 @@ int wolfSSL_CONF_cmd_value_type(WOLFSSL_CONF_CTX *cctx, const char *cmd)
 /*******************************************************************************
  * END OF CONF API
  ******************************************************************************/
+
+#if defined(OPENSSL_EXTRA)
+WOLFSSL_INIT_SETTINGS* wolfSSL_OPENSSL_INIT_new(void)
+{
+    WOLFSSL_INIT_SETTINGS* init = (WOLFSSL_INIT_SETTINGS*)XMALLOC(
+            sizeof(WOLFSSL_INIT_SETTINGS), NULL, DYNAMIC_TYPE_OPENSSL);
+
+    return init;
+}
+
+void wolfSSL_OPENSSL_INIT_free(WOLFSSL_INIT_SETTINGS* init)
+{
+    XFREE(init, NULL, DYNAMIC_TYPE_OPENSSL);
+}
+
+#ifndef NO_WOLFSSL_STUB
+int wolfSSL_OPENSSL_INIT_set_config_appname(WOLFSSL_INIT_SETTINGS* init,
+        char* appname)
+{
+    (void)init;
+    (void)appname;
+    WOLFSSL_STUB("OPENSSL_INIT_set_config_appname");
+    return WOLFSSL_SUCCESS;
+}
+#endif
+
+#endif /* OPENSSL_EXTRA */
+
+
 
 #endif /* WOLFSSL_CONF_INCLUDED */

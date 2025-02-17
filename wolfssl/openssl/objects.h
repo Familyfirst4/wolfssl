@@ -1,6 +1,6 @@
 /* objects.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -23,17 +23,24 @@
 #ifndef WOLFSSL_OBJECTS_H_
 #define WOLFSSL_OBJECTS_H_
 
-#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/wolfcrypt/types.h>
 #ifndef OPENSSL_EXTRA_SSL_GUARD
 #define OPENSSL_EXTRA_SSL_GUARD
 #include <wolfssl/ssl.h>
 #endif /* OPENSSL_EXTRA_SSL_GUARD */
+
+#include <wolfssl/openssl/obj_mac.h>
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
 #if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+
+#define WC_NID_ad_OCSP                     178
+#define WC_NID_ad_ca_issuers               179
+
+#ifndef OPENSSL_COEXIST
 
 #define OBJ_NAME_TYPE_UNDEF     WOLFSSL_OBJ_NAME_TYPE_UNDEF
 #define OBJ_NAME_TYPE_MD_METH   WOLFSSL_OBJ_NAME_TYPE_MD_METH
@@ -62,11 +69,12 @@
 #define i2t_ASN1_OBJECT  wolfSSL_i2t_ASN1_OBJECT
 
 /* not required for wolfSSL */
-#define OPENSSL_load_builtin_modules()
+#define OPENSSL_load_builtin_modules() WC_DO_NOTHING
 
+#define NID_ad_OCSP WC_NID_ad_OCSP
+#define NID_ad_ca_issuers WC_NID_ad_ca_issuers
 
-#define NID_ad_OCSP                     178
-#define NID_ad_ca_issuers               179
+#endif /* !OPENSSL_COEXIST */
 
 #endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
 

@@ -1,6 +1,6 @@
 /* des3.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -35,12 +35,6 @@
     #include <wolfssl/wolfcrypt/fips.h>
 #endif /* HAVE_FIPS_VERSION >= 2 */
 
-#if defined(HAVE_FIPS) && \
-        (!defined(HAVE_FIPS_VERSION) || (HAVE_FIPS_VERSION < 2))
-    /* included for fips @wc_fips */
-    #include <cyassl/ctaocrypt/des3.h>
-#endif
-
 #ifdef __cplusplus
     extern "C" {
 #endif
@@ -49,7 +43,7 @@
 enum {
     DES_KEY_SIZE        =  8,  /* des                     */
     DES3_KEY_SIZE       = 24,  /* 3 des ede               */
-    DES_IV_SIZE         =  8,  /* should be the same as DES_BLOCK_SIZE */
+    DES_IV_SIZE         =  8   /* should be the same as DES_BLOCK_SIZE */
 };
 
 
@@ -59,6 +53,11 @@ enum {
 
 #ifdef WOLFSSL_ASYNC_CRYPT
     #include <wolfssl/wolfcrypt/async.h>
+#endif
+
+#ifdef WOLFSSL_SE050
+    /* SE050 SDK also defines DES_BLOCK_SIZE */
+    #undef DES_BLOCK_SIZE
 #endif
 
 enum {
@@ -135,9 +134,16 @@ WOLFSSL_API int  wc_Des_EcbEncrypt(Des* des, byte* out,
 WOLFSSL_API int wc_Des3_EcbEncrypt(Des3* des, byte* out,
                                    const byte* in, word32 sz);
 
+#ifdef FREESCALE_MMCAU /* Has separate encrypt/decrypt functions */
+WOLFSSL_API int wc_Des_EcbDecrypt(Des* des, byte* out,
+                                   const byte* in, word32 sz);
+WOLFSSL_API int wc_Des3_EcbDecrypt(Des3* des, byte* out,
+                                   const byte* in, word32 sz);
+#else
 /* ECB decrypt same process as encrypt but with decrypt key */
 #define wc_Des_EcbDecrypt  wc_Des_EcbEncrypt
 #define wc_Des3_EcbDecrypt wc_Des3_EcbEncrypt
+#endif
 
 WOLFSSL_API int  wc_Des3_SetKey(Des3* des, const byte* key,
                                 const byte* iv,int dir);

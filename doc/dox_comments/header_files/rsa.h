@@ -27,7 +27,6 @@
     }
     \endcode
 
-    \sa wc_RsaInitCavium
     \sa wc_FreeRsaKey
     \sa wc_RsaSetRNG
 */
@@ -56,7 +55,7 @@ int  wc_InitRsaKey(RsaKey* key, void* heap);
     \param heap pointer to a heap identifier, for use with memory overrides,
     allowing custom handling of memory allocation. This heap will be the
     default used when allocating memory for use with this RSA object
-    \param devId ID to use with hardware device
+    \param devId ID to use with crypto callbacks or async hardware. Set to INVALID_DEVID (-2) if not used
 
     _Example_
     \code
@@ -77,7 +76,6 @@ int  wc_InitRsaKey(RsaKey* key, void* heap);
     \endcode
 
     \sa wc_InitRsaKey
-    \sa wc_RsaInitCavium
     \sa wc_FreeRsaKey
     \sa wc_RsaSetRNG
 */
@@ -132,6 +130,51 @@ int wc_RsaSetRNG(RsaKey* key, WC_RNG* rng);
     \sa wc_InitRsaKey
 */
 int  wc_FreeRsaKey(RsaKey* key);
+
+/*!
+    \ingroup RSA
+
+    \brief Function that does the RSA operation directly with no padding. The input
+        size must match key size. Typically this is
+        used when padding is already done on the RSA input.
+
+    \return size On successfully encryption the size of the encrypted buffer
+    is returned
+    \return RSA_BUFFER_E RSA buffer error, output too small or input too large
+
+    \param in buffer to do operation on
+    \param inLen length of input buffer
+    \param out buffer to hold results
+    \param outSz gets set to size of result buffer. Should be passed in as length
+        of out buffer. If the pointer "out" is null then outSz gets set to the
+        expected buffer size needed and LENGTH_ONLY_E gets returned.
+    \param key initialized RSA key to use for encrypt/decrypt
+    \param type if using private or public key (RSA_PUBLIC_ENCRYPT,
+        RSA_PUBLIC_DECRYPT, RSA_PRIVATE_ENCRYPT, RSA_PRIVATE_DECRYPT)
+    \param rng initialized WC_RNG struct
+
+    _Example_
+    \code
+    int ret;
+    WC_RNG rng;
+    RsaKey key;
+    byte  in[256];
+    byte out[256];
+    word32 outSz = (word32)sizeof(out);
+    …
+
+    ret = wc_RsaDirect(in, (word32)sizeof(in), out, &outSz, &key,
+        RSA_PRIVATE_ENCRYPT, &rng);
+    if (ret < 0) {
+	    //handle error
+    }
+    \endcode
+
+    \sa wc_RsaPublicEncrypt
+    \sa wc_RsaPrivateDecrypt
+*/
+int wc_RsaDirect(byte* in, word32 inLen, byte* out, word32* outSz,
+        RsaKey* key, int type, WC_RNG* rng);
 
 /*!
     \ingroup RSA
@@ -290,6 +333,12 @@ int  wc_RsaPrivateDecrypt(const byte* in, word32 inLen, byte* out,
     if (ret < 0) {
         return -1;
     }
+    if (ret != inLen) {
+        return -1;
+    }
+    if (XMEMCMP(in, plain, ret) != 0) {
+        return -1;
+    }
     \endcode
 
     \sa wc_RsaPad
@@ -314,7 +363,7 @@ int  wc_RsaSSL_Sign(const byte* in, word32 inLen, byte* out,
     _Example_
     \code
     RsaKey key;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     int ret = 0;
     long e = 65537; // standard value to use for exponent
     wc_InitRsaKey(&key, NULL); // not using heap hint. No custom memory
@@ -358,6 +407,12 @@ int  wc_RsaSSL_VerifyInline(byte* in, word32 inLen, byte** out,
     memset(plain, 0, sizeof(plain));
     ret = wc_RsaSSL_Verify(out, ret, plain, sizeof(plain), &key);
     if (ret < 0) {
+        return -1;
+    }
+    if (ret != inLen) {
+        return -1;
+    }
+    if (XMEMCMP(in, plain, ret) != 0) {
         return -1;
     }
     \endcode
@@ -426,6 +481,7 @@ int  wc_RsaPSS_Sign(const byte* in, word32 inLen, byte* out,
 
     \return Success Length of text on no error.
     \return MEMORY_E memory exception.
+    \return MP_EXPTMOD_E - When using fastmath and FP_MAX_BITS not set to at least 2 times the keySize (Example when using 4096-bit key set FP_MAX_BITS to 8192 or greater value)
 
     \param in The byte array to be decrypted.
     \param inLen The length of in.
@@ -1103,7 +1159,7 @@ int  wc_RsaPublicKeyDecodeRaw(const byte* n, word32 nSz,
     \brief This function converts an RsaKey key to DER format.  The result is
     written to output and it returns the number of bytes written.
 
-    \return 0 Success
+    \return >0 Success, number of bytes written.
     \return BAD_FUNC_ARG Returned if key or output is null, or if key->type
     is not RSA_PRIVATE, or if inLen isn't large enough for output buffer.
     \return MEMORY_E Returned if there is an error allocating memory.
@@ -1118,7 +1174,7 @@ int  wc_RsaPublicKeyDecodeRaw(const byte* n, word32 nSz,
     // Allocate memory for der
     int derSz = // Amount of memory allocated for der;
     RsaKey key;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     long e = 65537; // standard value to use for exponent
     ret = wc_MakeRsaKey(&key, 2048, e, &rng); // generate 2048 bit long
     private key
@@ -1161,7 +1217,7 @@ int wc_RsaKeyToDer(RsaKey* key, byte* output, word32 inLen);
 
     _Example_
     \code
-    WC_WC_WC_RNG rng;
+    WC_RNG rng;
     RsaKey key;
     byte in[] = “I use Turing Machines to ask questions”
     byte out[256];
@@ -1208,7 +1264,7 @@ int  wc_RsaPublicEncrypt_ex(const byte* in, word32 inLen, byte* out,
 
     _Example_
     \code
-    WC_WC_WC_RNG rng;
+    WC_RNG rng;
     RsaKey key;
     byte in[] = “I use Turing Machines to ask questions”
     byte out[256];
@@ -1265,7 +1321,7 @@ int  wc_RsaPrivateDecrypt_ex(const byte* in, word32 inLen,
 
     _Example_
     \code
-    WC_WC_WC_RNG rng;
+    WC_RNG rng;
     RsaKey key;
     byte in[] = “I use Turing Machines to ask questions”
     byte out[256];
@@ -1376,7 +1432,7 @@ int wc_RsaKeyToPublicDer(RsaKey* key, byte* output, word32 inLen);
     \ingroup RSA
 
     \brief Convert RSA Public key to DER format. Writes to output, and
-    returns count of bytes written. If with_header is 0 then only the 
+    returns count of bytes written. If with_header is 0 then only the
     ( seq + n + e) is returned in ASN.1 DER format and will exclude the header.
 
     \return >0 Success, number of bytes written.
@@ -1463,7 +1519,7 @@ int wc_RsaKeyToPublicDer_ex(RsaKey* key, byte* output, word32 inLen,
     _Example_
     \code
     RsaKey priv;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     int ret = 0;
     long e = 65537; // standard value to use for exponent
 

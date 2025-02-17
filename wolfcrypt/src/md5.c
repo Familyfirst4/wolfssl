@@ -1,6 +1,6 @@
 /* md5.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -48,7 +48,7 @@
 
 
 /* Hardware Acceleration */
-#if defined(STM32_HASH)
+#if defined(STM32_HASH) && !defined(STM32_NOMD5)
 
 /* Supports CubeMX HAL or Standard Peripheral Library */
 #define HAVE_MD5_CUST_API
@@ -450,13 +450,21 @@ int wc_Md5Final(wc_Md5* md5, byte* hash)
     }
 #endif /* WOLFSSL_ASYNC_CRYPT */
 
-    local = (byte*)md5->buffer;
+    local = (byte*)md5->buffer; /* buffer allocated in word32 size */
+
+    /* ensure we have a valid buffer length; (-1 to append a byte to length) */
+    if (md5->buffLen > WC_MD5_BLOCK_SIZE - 1) {
+        /* some places consider this BAD_STATE_E */
+        return BUFFER_E;
+    }
 
     local[md5->buffLen++] = 0x80;  /* add 1 */
 
     /* pad with zeros */
     if (md5->buffLen > WC_MD5_PAD_SIZE) {
-        XMEMSET(&local[md5->buffLen], 0, WC_MD5_BLOCK_SIZE - md5->buffLen);
+        if (md5->buffLen < WC_MD5_BLOCK_SIZE) {
+            XMEMSET(&local[md5->buffLen], 0, WC_MD5_BLOCK_SIZE - md5->buffLen);
+        }
         md5->buffLen += WC_MD5_BLOCK_SIZE - md5->buffLen;
 
 #if defined(BIG_ENDIAN_ORDER) && !defined(FREESCALE_MMCAU_SHA)
@@ -552,7 +560,7 @@ int wc_Md5Copy(wc_Md5* src, wc_Md5* dst)
     return ret;
 }
 
-#ifdef OPENSSL_EXTRA
+#if defined(OPENSSL_EXTRA) || defined(HAVE_CURL)
 /* Apply MD5 transformation to the data                   */
 /* @param md5  a pointer to wc_MD5 structure              */
 /* @param data data to be applied MD5 transformation      */

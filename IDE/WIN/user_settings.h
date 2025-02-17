@@ -6,13 +6,23 @@
 #error This user_settings.h header is only designed for Windows
 #endif
 
+#define USE_WOLFSSL_IO
+#define HAVE_AESGCM
+#define WOLFSSL_TLS13
+#define HAVE_HKDF
+#define HAVE_FFDHE_4096
+#define WC_RSA_PSS
+#define WOLFSSL_DTLS
+#define WOLFSSL_DTLS13
+#define WOLFSSL_SEND_HRR_COOKIE
+#define WOLFSSL_DTLS_CID
+
 /* Configurations */
 #if defined(HAVE_FIPS)
     /* FIPS */
     #define OPENSSL_EXTRA
     #define HAVE_THREAD_LS
     #define WOLFSSL_KEY_GEN
-    #define HAVE_AESGCM
     #define HAVE_HASHDRBG
     #define WOLFSSL_SHA384
     #define WOLFSSL_SHA512
@@ -27,6 +37,9 @@
     #define WC_RSA_BLINDING
     #define NO_MULTIBYTE_PRINT
 
+    #define HAVE_CRL
+    #define HAVE_CRL_MONITOR
+
     #if defined(WOLFSSL_LIB)
         /* The lib */
         #define OPENSSL_EXTRA
@@ -37,6 +50,7 @@
         #define HAVE_SECURE_RENEGOTIATION
 
         #define HAVE_AESGCM
+        #define WOLFSSL_AESGCM_STREAM
         #define WOLFSSL_SHA384
         #define WOLFSSL_SHA512
 
@@ -47,12 +61,22 @@
         #define ECC_SHAMIR
         #define ECC_TIMING_RESISTANT
 
+        #define WOLFSSL_SP_X86_64
+        #define SP_INT_BITS  4096
+
         /* Optional Performance Speedups */
         #if 0
             /* AESNI on x64 */
             #ifdef _WIN64
                 #define HAVE_INTEL_RDSEED
                 #define WOLFSSL_AESNI
+                #define HAVE_INTEL_AVX1
+                #if 0
+                    #define HAVE_INTEL_AVX2
+                #endif
+
+                #define USE_INTEL_CHACHA_SPEEDUP
+                #define USE_INTEL_POLY1305_SPEEDUP
             #endif
 
             /* Single Precision Support for RSA/DH 1024/2048/3072 and
@@ -73,7 +97,6 @@
                 #define WOLFSSL_SP_X86_64_ASM
             #endif
         #endif
-
     #else
         /* The servers and clients */
         #define OPENSSL_EXTRA

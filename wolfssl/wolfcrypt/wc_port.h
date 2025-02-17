@@ -1,6 +1,6 @@
 /* wc_port.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -54,28 +54,124 @@
     #endif
 #endif
 
+#if defined(WOLFSSL_MAX3266X) || defined(WOLFSSL_MAX3266X_OLD)
+    #include <wolfssl/wolfcrypt/port/maxim/max3266x.h>
+#endif
+
 #ifdef WOLFSSL_LINUXKM
     #include "../../linuxkm/linuxkm_wc_port.h"
 #endif /* WOLFSSL_LINUXKM */
 
+#ifndef WARN_UNUSED_RESULT
+    #if defined(WOLFSSL_LINUXKM) && defined(__must_check)
+        #define WARN_UNUSED_RESULT __must_check
+    #elif (defined(__GNUC__) && (__GNUC__ >= 4)) || \
+        (defined(__IAR_SYSTEMS_ICC__) && (__VER__ >= 9040001))
+        #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))
+    #else
+        #define WARN_UNUSED_RESULT
+    #endif
+#endif /* !WARN_UNUSED_RESULT */
+
+#ifndef WC_MAYBE_UNUSED
+    #if (defined(__GNUC__) && (__GNUC__ >= 4)) || defined(__clang__) || \
+            defined(__IAR_SYSTEMS_ICC__)
+        #define WC_MAYBE_UNUSED __attribute__((unused))
+    #else
+        #define WC_MAYBE_UNUSED
+    #endif
+#endif /* !WC_MAYBE_UNUSED */
+
+/* use inlining if compiler allows */
+#ifndef WC_INLINE
+#ifndef NO_INLINE
+    #ifdef _MSC_VER
+        #define WC_INLINE __inline
+    #elif defined(__GNUC__)
+           #ifdef WOLFSSL_VXWORKS
+               #define WC_INLINE __inline__
+           #else
+               #define WC_INLINE inline
+           #endif
+    #elif defined(__IAR_SYSTEMS_ICC__)
+        #define WC_INLINE inline
+    #elif defined(THREADX)
+        #define WC_INLINE _Inline
+    #elif defined(__ghc__)
+        #ifndef __cplusplus
+            #define WC_INLINE __inline
+        #else
+            #define WC_INLINE inline
+        #endif
+    #elif defined(__CCRX__)
+        #define WC_INLINE inline
+    #elif defined(__DCC__)
+        #ifndef __cplusplus
+            #define WC_INLINE __inline__
+        #else
+            #define WC_INLINE inline
+        #endif
+    #else
+        #define WC_INLINE WC_MAYBE_UNUSED
+    #endif
+#else
+    #define WC_INLINE WC_MAYBE_UNUSED
+#endif
+#endif
+
 /* THREADING/MUTEX SECTION */
-#ifdef USE_WINDOWS_API
+#if defined(__WATCOMC__)
+    #if !defined(SINGLE_THREADED)
+        #if defined(USE_WINDOWS_API)
+            #define _WINSOCKAPI_ /* block inclusion of winsock.h header file */
+            #include <windows.h>
+            #include <process.h>
+        #elif defined(__OS2__)
+            #define INCL_DOSSEMAPHORES
+            #define INCL_DOSPROCESS
+            #include <os2.h>
+            #include <process.h>
+        #else
+            #ifndef WOLFSSL_USER_MUTEX
+                #define WOLFSSL_PTHREADS
+            #endif
+            #if defined(WOLFSSL_PTHREADS)
+                #include <pthread.h>
+            #endif
+        #endif
+    #else
+        #if defined(USE_WINDOWS_API)
+            #define _WINSOCKAPI_ /* block inclusion of winsock.h header file */
+            #include <windows.h>
+        #elif defined(__OS2__)
+            #include <os2.h>
+        #endif
+    #endif
+#elif defined(SINGLE_THREADED) && defined(NO_FILESYSTEM)
+    /* No system headers required for build. */
+#elif defined(USE_WINDOWS_API)
+    #if defined(WOLFSSL_PTHREADS)
+        #include <pthread.h>
+    #endif
     #ifdef WOLFSSL_GAME_BUILD
         #include "system/xtl.h"
     #else
         #ifndef WIN32_LEAN_AND_MEAN
             #define WIN32_LEAN_AND_MEAN
         #endif
-        #ifndef WOLFSSL_SGX
-            #if defined(_WIN32_WCE) || defined(WIN32_LEAN_AND_MEAN)
-                /* On WinCE winsock2.h must be included before windows.h */
-                #include <winsock2.h>
-            #endif
+        #if !defined(WOLFSSL_SGX) && !defined(WOLFSSL_NOT_WINDOWS_API)
+            #define _WINSOCKAPI_ /* block inclusion of winsock.h header file. */
             #include <windows.h>
+            /* winsock2.h expects _WINSOCKAPI_ to be undef, and defines it. */
+            #undef _WINSOCKAPI_
             #ifndef WOLFSSL_USER_IO
+                #include <winsock2.h>
                 #include <ws2tcpip.h> /* required for InetPton */
             #endif
         #endif /* WOLFSSL_SGX */
+    #endif
+    #if !defined(SINGLE_THREADED) && !defined(_WIN32_WCE)
+        #include <process.h>
     #endif
 #elif defined(THREADX)
     #ifndef SINGLE_THREADED
@@ -124,6 +220,7 @@
     #include "cmsis_os.h"
 #elif defined(WOLFSSL_TIRTOS)
     #include <ti/sysbios/BIOS.h>
+    #include <ti/sysbios/knl/Task.h>
     #include <ti/sysbios/knl/Semaphore.h>
 #elif defined(WOLFSSL_FROSTED)
     #include <semaphore.h>
@@ -138,8 +235,20 @@
 #elif defined(WOLFSSL_APACHE_MYNEWT)
     /* do nothing */
 #elif defined(WOLFSSL_ZEPHYR)
+    #include <version.h>
     #ifndef SINGLE_THREADED
+        #if !defined(CONFIG_PTHREAD_IPC) && !defined(CONFIG_POSIX_THREADS)
+            #error "Threading needs CONFIG_PTHREAD_IPC / CONFIG_POSIX_THREADS"
+        #endif
+    #if KERNEL_VERSION_NUMBER >= 0x30100
+        #include <zephyr/kernel.h>
+        #include <zephyr/posix/posix_types.h>
+        #include <zephyr/posix/pthread.h>
+    #else
         #include <kernel.h>
+        #include <posix/posix_types.h>
+        #include <posix/pthread.h>
+    #endif
     #endif
 #elif defined(WOLFSSL_TELIT_M2MB)
 
@@ -202,7 +311,11 @@
 #else /* MULTI_THREADED */
     /* FREERTOS comes first to enable use of FreeRTOS Windows simulator only */
     #if defined(FREERTOS)
-        typedef xSemaphoreHandle wolfSSL_Mutex;
+        #if defined(ESP_IDF_VERSION_MAJOR) && (ESP_IDF_VERSION_MAJOR >= 4)
+            typedef SemaphoreHandle_t wolfSSL_Mutex;
+        #else
+            typedef xSemaphoreHandle wolfSSL_Mutex;
+        #endif
     #elif defined(FREERTOS_TCP)
         #include "FreeRTOS.h"
         #include "semphr.h"
@@ -215,10 +328,20 @@
             signed char mutexBuffer[portQUEUE_OVERHEAD_BYTES];
             xSemaphoreHandle mutex;
         } wolfSSL_Mutex;
-    #elif defined(USE_WINDOWS_API)
+    #elif defined(USE_WINDOWS_API) && !defined(WOLFSSL_PTHREADS)
         typedef CRITICAL_SECTION wolfSSL_Mutex;
-    #elif defined(WOLFSSL_PTHREADS)
+    #elif defined(MAXQ10XX_MUTEX)
+        #include <sys/mman.h>
+        #include <fcntl.h>
+        #include <pthread.h>
         typedef pthread_mutex_t wolfSSL_Mutex;
+        int maxq_CryptHwMutexTryLock(void);
+    #elif defined(WOLFSSL_PTHREADS)
+        #ifdef WOLFSSL_USE_RWLOCK
+            typedef pthread_rwlock_t wolfSSL_RwLock;
+        #endif
+        typedef pthread_mutex_t wolfSSL_Mutex;
+        #define WOLFSSL_MUTEX_INITIALIZER(lockname) PTHREAD_MUTEX_INITIALIZER
     #elif defined(THREADX)
         typedef TX_MUTEX wolfSSL_Mutex;
     #elif defined(WOLFSSL_DEOS)
@@ -226,7 +349,11 @@
     #elif defined(MICRIUM)
         typedef OS_MUTEX wolfSSL_Mutex;
     #elif defined(EBSNET)
-        typedef RTP_MUTEX wolfSSL_Mutex;
+        #if (defined(RTPLATFORM) && (RTPLATFORM != 0))
+            typedef RTP_MUTEX wolfSSL_Mutex;
+        #else
+            typedef KS_RTIPSEM wolfSSL_Mutex;
+        #endif
     #elif defined(FREESCALE_MQX) || defined(FREESCALE_KSDK_MQX)
         typedef MUTEX_STRUCT wolfSSL_Mutex;
     #elif defined(FREESCALE_FREE_RTOS)
@@ -271,55 +398,174 @@
         /* typedef User_Mutex wolfSSL_Mutex; */
     #elif defined(WOLFSSL_LINUXKM)
         /* definitions are in linuxkm/linuxkm_wc_port.h */
+    #elif defined(__WATCOMC__)
+        /* OS/2 */
+        typedef ULONG wolfSSL_Mutex;
     #else
         #error Need a mutex type in multithreaded mode
     #endif /* USE_WINDOWS_API */
+
 #endif /* SINGLE_THREADED */
 
+#ifdef WOLFSSL_TEST_NO_MUTEX_INITIALIZER
+    #undef WOLFSSL_MUTEX_INITIALIZER
+#endif
+
+#ifdef WOLFSSL_MUTEX_INITIALIZER
+    #define WOLFSSL_MUTEX_INITIALIZER_CLAUSE(lockname) = WOLFSSL_MUTEX_INITIALIZER(lockname)
+#else
+    #define WOLFSSL_MUTEX_INITIALIZER_CLAUSE(lockname) /* null expansion */
+#endif
+
+#if !defined(WOLFSSL_USE_RWLOCK) || defined(SINGLE_THREADED)
+    typedef wolfSSL_Mutex wolfSSL_RwLock;
+#endif
+
+#ifndef WOLFSSL_NO_ATOMICS
+#ifdef SINGLE_THREADED
+    typedef int wolfSSL_Atomic_Int;
+    #define WOLFSSL_ATOMIC_INITIALIZER(x) (x)
+    #define WOLFSSL_ATOMIC_LOAD(x) (x)
+    #define WOLFSSL_ATOMIC_STORE(x, val) (x) = (val)
+    #define WOLFSSL_ATOMIC_OPS
+#elif defined(HAVE_C___ATOMIC)
+#ifdef __cplusplus
+#if defined(__GNUC__) && defined(__ATOMIC_RELAXED)
+    /* C++ using direct calls to compiler built-in functions */
+    typedef volatile int wolfSSL_Atomic_Int;
+    #define WOLFSSL_ATOMIC_INITIALIZER(x) (x)
+    #define WOLFSSL_ATOMIC_LOAD(x) __atomic_load_n(&(x), __ATOMIC_CONSUME)
+    #define WOLFSSL_ATOMIC_STORE(x, val) __atomic_store_n(&(x), val, __ATOMIC_RELEASE)
+    #define WOLFSSL_ATOMIC_OPS
+#endif
+#else
+    #ifdef WOLFSSL_HAVE_ATOMIC_H
+    /* Default C Implementation */
+    #include <stdatomic.h>
+    typedef atomic_int wolfSSL_Atomic_Int;
+    #define WOLFSSL_ATOMIC_INITIALIZER(x) (x)
+    #define WOLFSSL_ATOMIC_LOAD(x) atomic_load(&(x))
+    #define WOLFSSL_ATOMIC_STORE(x, val) atomic_store(&(x), val)
+    #define WOLFSSL_ATOMIC_OPS
+    #endif /* WOLFSSL_HAVE_ATOMIC_H */
+#endif
+#elif defined(_MSC_VER) && !defined(WOLFSSL_NOT_WINDOWS_API)
+    /* Use MSVC compiler intrinsics for atomic ops */
+    #ifdef _WIN32_WCE
+        #include <armintr.h>
+    #else
+        #include <intrin.h>
+    #endif
+    typedef volatile long wolfSSL_Atomic_Int;
+    #define WOLFSSL_ATOMIC_INITIALIZER(x) (x)
+    #define WOLFSSL_ATOMIC_LOAD(x) (x)
+    #define WOLFSSL_ATOMIC_STORE(x, val) (x) = (val)
+    #define WOLFSSL_ATOMIC_OPS
+#endif
+#endif /* WOLFSSL_NO_ATOMICS */
+
+#if defined(WOLFSSL_ATOMIC_OPS) && !defined(SINGLE_THREADED)
+    WOLFSSL_API void wolfSSL_Atomic_Int_Init(wolfSSL_Atomic_Int* c, int i);
+    /* Fetch* functions return the value of the counter immediately preceding
+     * the effects of the function. */
+    WOLFSSL_API int wolfSSL_Atomic_Int_FetchAdd(wolfSSL_Atomic_Int* c, int i);
+    WOLFSSL_API int wolfSSL_Atomic_Int_FetchSub(wolfSSL_Atomic_Int* c, int i);
+#else
+    /* Code using these fallback implementations in non-SINGLE_THREADED builds
+     * needs to arrange its own explicit fallback to int for wolfSSL_Atomic_Int,
+     * which is not defined if !defined(WOLFSSL_ATOMIC_OPS) &&
+     * !defined(SINGLE_THREADED).  This forces local awareness of thread-unsafe
+     * semantics.
+     */
+    #define wolfSSL_Atomic_Int_Init(c, i) (*(c) = (i))
+    static WC_INLINE int wolfSSL_Atomic_Int_FetchAdd(int *c, int i) {
+        int ret = *c;
+        *c += i;
+        return ret;
+    }
+    static WC_INLINE int wolfSSL_Atomic_Int_FetchSub(int *c, int i) {
+        int ret = *c;
+        *c -= i;
+        return ret;
+    }
+#endif
+
 /* Reference counting. */
-typedef struct wolfSSL_Ref {
-/* TODO: use atomic operations instead of mutex. */
-#ifndef SINGLE_THREADED
+typedef struct wolfSSL_RefWithMutex {
+#if !defined(SINGLE_THREADED)
     wolfSSL_Mutex mutex;
 #endif
     int count;
+} wolfSSL_RefWithMutex;
+
+#if defined(WOLFSSL_ATOMIC_OPS) && !defined(SINGLE_THREADED)
+typedef struct wolfSSL_Ref {
+    wolfSSL_Atomic_Int count;
 } wolfSSL_Ref;
-
-#ifdef SINGLE_THREADED
-#define wolfSSL_RefInit(ref, err)           \
-    do {                                    \
-        (ref)->count = 1;                   \
-        *(err) = 0;                         \
-    }                                       \
-    while (0)
-
-#define wolfSSL_RefFree(ref)
-
-#define wolfSSL_RefInc(ref, err)            \
-    do {                                    \
-        (ref)->count++;                     \
-        *(err) = 0;                         \
-    }                                       \
-    while (0)
-
-#define wolfSSL_RefDec(ref, isZero, err)    \
-    do {                                    \
-        (ref)->count--;                     \
-        *(isZero) = ((ref)->count == 0);    \
-        *(err) = 0;                         \
-    }                                       \
-    while (0)
 #else
-WOLFSSL_LOCAL void wolfSSL_RefInit(wolfSSL_Ref* ref, int* err);
-WOLFSSL_LOCAL void wolfSSL_RefFree(wolfSSL_Ref* ref);
-WOLFSSL_LOCAL void wolfSSL_RefInc(wolfSSL_Ref* ref, int* err);
-WOLFSSL_LOCAL void wolfSSL_RefDec(wolfSSL_Ref* ref, int* isZero, int* err);
+typedef struct wolfSSL_RefWithMutex wolfSSL_Ref;
+#endif
+
+#if defined(SINGLE_THREADED) || defined(WOLFSSL_ATOMIC_OPS)
+
+#define wolfSSL_RefInit(ref, err)            \
+    do {                                     \
+        wolfSSL_Atomic_Int_Init(&(ref)->count, 1); \
+        *(err) = 0;                          \
+    } while(0)
+#define wolfSSL_RefFree(ref) WC_DO_NOTHING
+#define wolfSSL_RefInc(ref, err)             \
+    do {                                     \
+        (void)wolfSSL_Atomic_Int_FetchAdd(&(ref)->count, 1); \
+        *(err) = 0;                          \
+    } while(0)
+#define wolfSSL_RefDec(ref, isZero, err)     \
+    do {                                     \
+        int __prev = wolfSSL_Atomic_Int_FetchSub(&(ref)->count, 1); \
+        /* __prev holds the value of count before subtracting 1 */ \
+        *(isZero) = (__prev == 1);     \
+        *(err) = 0;                          \
+    } while(0)
+
+#else
+
+#define WOLFSSL_REFCNT_ERROR_RETURN
+
+#define wolfSSL_RefInit wolfSSL_RefWithMutexInit
+#define wolfSSL_RefFree wolfSSL_RefWithMutexFree
+#define wolfSSL_RefInc wolfSSL_RefWithMutexInc
+#define wolfSSL_RefDec wolfSSL_RefWithMutexDec
+
+#endif
+
+#if defined(SINGLE_THREADED)
+
+#define wolfSSL_RefWithMutexInit wolfSSL_RefInit
+#define wolfSSL_RefWithMutexFree wolfSSL_RefFree
+#define wolfSSL_RefWithMutexInc wolfSSL_RefInc
+#define wolfSSL_RefWithMutexLock(ref) 0
+#define wolfSSL_RefWithMutexUnlock(ref) 0
+#define wolfSSL_RefWithMutexDec wolfSSL_RefDec
+
+#else
+
+WOLFSSL_LOCAL void wolfSSL_RefWithMutexInit(wolfSSL_RefWithMutex* ref,
+                                            int* err);
+WOLFSSL_LOCAL void wolfSSL_RefWithMutexFree(wolfSSL_RefWithMutex* ref);
+WOLFSSL_LOCAL void wolfSSL_RefWithMutexInc(wolfSSL_RefWithMutex* ref,
+                                            int* err);
+WOLFSSL_LOCAL int wolfSSL_RefWithMutexLock(wolfSSL_RefWithMutex* ref);
+WOLFSSL_LOCAL int wolfSSL_RefWithMutexUnlock(wolfSSL_RefWithMutex* ref);
+WOLFSSL_LOCAL void wolfSSL_RefWithMutexDec(wolfSSL_RefWithMutex* ref,
+                                            int* isZero, int* err);
+
 #endif
 
 
 /* Enable crypt HW mutex for Freescale MMCAU, PIC32MZ or STM32 */
 #if defined(FREESCALE_MMCAU) || defined(WOLFSSL_MICROCHIP_PIC32MZ) || \
-    defined(STM32_CRYPTO) || defined(STM32_HASH) || defined(STM32_RNG)
+    defined(STM32_CRYPTO) || defined(STM32_HASH) || defined(STM32_RNG) || \
+    defined(WOLFSSL_MAX3266X) || defined(WOLFSSL_MAX3266X_OLD)
     #ifndef WOLFSSL_CRYPT_HW_MUTEX
         #define WOLFSSL_CRYPT_HW_MUTEX  1
     #endif
@@ -334,9 +580,9 @@ WOLFSSL_LOCAL void wolfSSL_RefDec(wolfSSL_Ref* ref, int* isZero, int* err);
        however it's recommended to call this directly on Hw init to avoid possible
        race condition where two calls to wolfSSL_CryptHwMutexLock are made at
        the same time. */
-    int wolfSSL_CryptHwMutexInit(void);
-    int wolfSSL_CryptHwMutexLock(void);
-    int wolfSSL_CryptHwMutexUnLock(void);
+    WOLFSSL_LOCAL int wolfSSL_CryptHwMutexInit(void);
+    WOLFSSL_LOCAL int wolfSSL_CryptHwMutexLock(void);
+    WOLFSSL_LOCAL int wolfSSL_CryptHwMutexUnLock(void);
 #else
     /* Define stubs, since HW mutex is disabled */
     #define wolfSSL_CryptHwMutexInit()      0 /* Success */
@@ -344,23 +590,98 @@ WOLFSSL_LOCAL void wolfSSL_RefDec(wolfSSL_Ref* ref, int* isZero, int* err);
     #define wolfSSL_CryptHwMutexUnLock()    (void)0 /* Success */
 #endif /* WOLFSSL_CRYPT_HW_MUTEX */
 
+#if defined(WOLFSSL_ALGO_HW_MUTEX) && (defined(NO_RNG_MUTEX) && \
+        defined(NO_AES_MUTEX) && defined(NO_HASH_MUTEX) && defined(NO_PK_MUTEX))
+        #error WOLFSSL_ALGO_HW_MUTEX does not support having all mutexes off
+#endif
+/* To support HW that can do different Crypto in parallel */
+#if WOLFSSL_CRYPT_HW_MUTEX && defined(WOLFSSL_ALGO_HW_MUTEX)
+    typedef enum {
+        #ifndef NO_RNG_MUTEX
+        rng_mutex,
+        #endif
+        #ifndef NO_AES_MUTEX
+        aes_mutex,
+        #endif
+        #ifndef NO_HASH_MUTEX
+        hash_mutex,
+        #endif
+        #ifndef NO_PK_MUTEX
+        pk_mutex,
+        #endif
+    } hw_mutex_algo;
+#endif
+
+/* If algo mutex is off, or WOLFSSL_ALGO_HW_MUTEX is not define, default */
+/* to using the generic wolfSSL_CryptHwMutex */
+#if (!defined(NO_RNG_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX)) && \
+    WOLFSSL_CRYPT_HW_MUTEX
+    WOLFSSL_LOCAL int wolfSSL_HwRngMutexInit(void);
+    WOLFSSL_LOCAL int wolfSSL_HwRngMutexLock(void);
+    WOLFSSL_LOCAL int wolfSSL_HwRngMutexUnLock(void);
+#else
+    #define wolfSSL_HwRngMutexInit    wolfSSL_CryptHwMutexInit
+    #define wolfSSL_HwRngMutexLock    wolfSSL_CryptHwMutexLock
+    #define wolfSSL_HwRngMutexUnLock  wolfSSL_CryptHwMutexUnLock
+#endif /* !defined(NO_RNG_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX) */
+
+#if (!defined(NO_AES_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX)) && \
+    WOLFSSL_CRYPT_HW_MUTEX
+    WOLFSSL_LOCAL int wolfSSL_HwAesMutexInit(void);
+    WOLFSSL_LOCAL int wolfSSL_HwAesMutexLock(void);
+    WOLFSSL_LOCAL int wolfSSL_HwAesMutexUnLock(void);
+#else
+    #define wolfSSL_HwAesMutexInit    wolfSSL_CryptHwMutexInit
+    #define wolfSSL_HwAesMutexLock    wolfSSL_CryptHwMutexLock
+    #define wolfSSL_HwAesMutexUnLock  wolfSSL_CryptHwMutexUnLock
+#endif /* !defined(NO_AES_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX) */
+
+#if (!defined(NO_HASH_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX)) && \
+    WOLFSSL_CRYPT_HW_MUTEX
+    WOLFSSL_LOCAL int wolfSSL_HwHashMutexInit(void);
+    WOLFSSL_LOCAL int wolfSSL_HwHashMutexLock(void);
+    WOLFSSL_LOCAL int wolfSSL_HwHashMutexUnLock(void);
+#else
+    #define wolfSSL_HwHashMutexInit   wolfSSL_CryptHwMutexInit
+    #define wolfSSL_HwHashMutexLock   wolfSSL_CryptHwMutexLock
+    #define wolfSSL_HwHashMutexUnLock wolfSSL_CryptHwMutexUnLock
+#endif /* !defined(NO_HASH_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX) */
+
+#if (!defined(NO_PK_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX)) && \
+    WOLFSSL_CRYPT_HW_MUTEX
+    WOLFSSL_LOCAL int wolfSSL_HwPkMutexInit(void);
+    WOLFSSL_LOCAL int wolfSSL_HwPkMutexLock(void);
+    WOLFSSL_LOCAL int wolfSSL_HwPkMutexUnLock(void);
+#else
+    #define wolfSSL_HwPkMutexInit     wolfSSL_CryptHwMutexInit
+    #define wolfSSL_HwPkMutexLock     wolfSSL_CryptHwMutexLock
+    #define wolfSSL_HwPkMutexUnLock   wolfSSL_CryptHwMutexUnLock
+#endif /* !defined(NO_PK_MUTEX) && defined(WOLFSSL_ALGO_HW_MUTEX) */
+
 /* Mutex functions */
 WOLFSSL_API int wc_InitMutex(wolfSSL_Mutex* m);
 WOLFSSL_API wolfSSL_Mutex* wc_InitAndAllocMutex(void);
 WOLFSSL_API int wc_FreeMutex(wolfSSL_Mutex* m);
 WOLFSSL_API int wc_LockMutex(wolfSSL_Mutex* m);
 WOLFSSL_API int wc_UnLockMutex(wolfSSL_Mutex* m);
+/* RwLock functions. Fallback to Mutex when not implemented explicitly. */
+WOLFSSL_API int wc_InitRwLock(wolfSSL_RwLock* m);
+WOLFSSL_API int wc_FreeRwLock(wolfSSL_RwLock* m);
+WOLFSSL_API int wc_LockRwLock_Wr(wolfSSL_RwLock* m);
+WOLFSSL_API int wc_LockRwLock_Rd(wolfSSL_RwLock* m);
+WOLFSSL_API int wc_UnLockRwLock(wolfSSL_RwLock* m);
 #if defined(OPENSSL_EXTRA) || defined(HAVE_WEBSERVER)
 /* dynamically set which mutex to use. unlock / lock is controlled by flag */
 typedef void (mutex_cb)(int flag, int type, const char* file, int line);
 
 WOLFSSL_API int wc_LockMutex_ex(int flag, int type, const char* file, int line);
 WOLFSSL_API int wc_SetMutexCb(mutex_cb* cb);
+WOLFSSL_API mutex_cb* wc_GetMutexCb(void);
 #endif
 
 /* main crypto initialization function */
-WOLFSSL_API int wolfCrypt_Init(void);
-WOLFSSL_API int wolfCrypt_Cleanup(void);
+WOLFSSL_ABI WOLFSSL_API int wolfCrypt_Init(void);
+WOLFSSL_ABI WOLFSSL_API int wolfCrypt_Cleanup(void);
 
 #ifdef WOLFSSL_TRACK_MEMORY_VERBOSE
     WOLFSSL_API long wolfCrypt_heap_peakAllocs_checkpoint(void);
@@ -383,13 +704,15 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN(NAME, MODE)       vf_open((const char *)NAME, VO_RDONLY, 0)
     #define XFSEEK                   ebsnet_fseek
     #define XFTELL                   vf_tell
-    #define XREWIND                  vf_rewind
     #define XFREAD(BUF, SZ, AMT, FD) vf_read(FD, BUF, SZ*AMT)
     #define XFWRITE(BUF, SZ, AMT, FD) vf_write(FD, BUF, SZ*AMT)
     #define XFCLOSE                  vf_close
+    #define XSEEK_SET                VSEEK_SET
     #define XSEEK_END                VSEEK_END
     #define XBADFILE                 -1
     #define XFGETS(b,s,f)            -2 /* Not ported yet */
+    #define XSNPRINTF rtp_snprintf
+    #define XFPRINTF fprintf
 
 #elif defined(LSR_FS)
     #include <fs.h>
@@ -397,10 +720,10 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN(NAME, MODE)      fs_open((char*)NAME)
     #define XFSEEK(F, O, W)         (void)F
     #define XFTELL(F)               (F)->len
-    #define XREWIND(F)              (void)F
     #define XFREAD(BUF, SZ, AMT, F) fs_read(F, (char*)BUF, SZ*AMT)
     #define XFWRITE(BUF, SZ, AMT, F) fs_write(F, (char*)BUF, SZ*AMT)
     #define XFCLOSE                 fs_close
+    #define XSEEK_SET               0
     #define XSEEK_END               0
     #define XBADFILE                NULL
     #define XFGETS(b,s,f)           -2 /* Not ported yet */
@@ -410,10 +733,10 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN                  fopen
     #define XFSEEK                  fseek
     #define XFTELL                  ftell
-    #define XREWIND(F)              fseek(F, 0, IO_SEEK_SET)
     #define XFREAD                  fread
     #define XFWRITE                 fwrite
     #define XFCLOSE                 fclose
+    #define XSEEK_SET               IO_SEEK_SET
     #define XSEEK_END               IO_SEEK_END
     #define XBADFILE                NULL
     #define XFGETS                  fgets
@@ -427,10 +750,10 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN     fs_fopen
     #define XFSEEK     fs_fseek
     #define XFTELL     fs_ftell
-    #define XREWIND    fs_rewind
     #define XFREAD     fs_fread
     #define XFWRITE    fs_fwrite
     #define XFCLOSE    fs_fclose
+    #define XSEEK_SET  FS_SEEK_SET
     #define XSEEK_END  FS_SEEK_END
     #define XBADFILE   NULL
     #define XFGETS(b,s,f) -2 /* Not ported yet */
@@ -441,10 +764,10 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN     fopen
     #define XFSEEK     fseek
     #define XFTELL     ftell
-    #define XREWIND    rewind
     #define XFREAD     fread
     #define XFWRITE    fwrite
     #define XFCLOSE    fclose
+    #define XSEEK_SET  PSEEK_SET
     #define XSEEK_END  PSEEK_END
     #define XBADFILE   NULL
 
@@ -455,44 +778,51 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN     mynewt_fopen
     #define XFSEEK     mynewt_fseek
     #define XFTELL     mynewt_ftell
-    #define XREWIND    mynewt_rewind
     #define XFREAD     mynewt_fread
     #define XFWRITE    mynewt_fwrite
     #define XFCLOSE    mynewt_fclose
+    #define XSEEK_SET  0
     #define XSEEK_END  2
     #define XBADFILE   NULL
     #define XFGETS(b,s,f) -2 /* Not ported yet */
 
 #elif defined(WOLFSSL_ZEPHYR)
-    #include <fs/fs.h>
+    #include <zephyr/fs/fs.h>
 
     #define XFILE      struct fs_file_t*
-    #define STAT       struct fs_dirent
 
-    XFILE z_fs_open(const char* filename, const char* perm);
+    /* These are our wrappers for opening and closing files to
+     * make the API more POSIX like. */
+    XFILE z_fs_open(const char* filename, const char* mode);
     int z_fs_close(XFILE file);
 
     #define XFOPEN              z_fs_open
     #define XFCLOSE             z_fs_close
+    #define XFFLUSH             fs_sync
     #define XFSEEK              fs_seek
     #define XFTELL              fs_tell
     #define XFREWIND            fs_rewind
-    #define XREWIND(F)          fs_seek(F, 0, FS_SEEK_SET)
     #define XFREAD(P,S,N,F)     fs_read(F, P, S*N)
     #define XFWRITE(P,S,N,F)    fs_write(F, P, S*N)
+    #define XSEEK_SET           FS_SEEK_SET
     #define XSEEK_END           FS_SEEK_END
     #define XBADFILE            NULL
     #define XFGETS(b,s,f)       -2 /* Not ported yet */
+
+    #define XSTAT               fs_stat
+    #define XSTAT_TYPE          struct fs_dirent
+    #define XS_ISREG(s)         (s == FS_DIR_ENTRY_FILE)
+    #define SEPARATOR_CHAR      ':'
 
 #elif defined(WOLFSSL_TELIT_M2MB)
     #define XFILE                    INT32
     #define XFOPEN(NAME, MODE)       m2mb_fs_open((NAME), 0, (MODE))
     #define XFSEEK(F, O, W)          m2mb_fs_lseek((F), (O), (W))
     #define XFTELL(F)                m2mb_fs_lseek((F), 0, M2MB_SEEK_END)
-    #define XREWIND(F)               (void)F
     #define XFREAD(BUF, SZ, AMT, F)  m2mb_fs_read((F), (BUF), (SZ)*(AMT))
     #define XFWRITE(BUF, SZ, AMT, F) m2mb_fs_write((F), (BUF), (SZ)*(AMT))
     #define XFCLOSE                  m2mb_fs_close
+    #define XSEEK_SET                M2MB_SEEK_SET
     #define XSEEK_END                M2MB_SEEK_END
     #define XBADFILE                 -1
     #define XFGETS(b,s,f)            -2 /* Not ported yet */
@@ -506,10 +836,10 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN(NAME, MODE)       ({ FRESULT res; res = f_open(&curFile, (NAME), (FA_OPEN_ALWAYS | FA_WRITE | FA_READ)); (res == FR_OK) ? &curFile : NULL; })
     #define XFSEEK(F, O, W)          f_lseek((F), (O))
     #define XFTELL(F)                f_tell((F))
-    #define XREWIND(F)               f_rewind((F))
     #define XFREAD(BUF, SZ, AMT, F)  ({ FRESULT res; UINT br; res = f_read((F), (BUF), (SZ)*(AMT), &br); (void)br; res; })
     #define XFWRITE(BUF, SZ, AMT, F) ({ FRESULT res; UINT written; res = f_write((F), (BUF), (SZ)*(AMT), &written); (void)written; res; })
     #define XFCLOSE(F)               f_close((F))
+    #define XSEEK_SET                0
     #define XSEEK_END                0
     #define XBADFILE                 NULL
     #define XFGETS(b,s,f)            f_gets((b), (s), (f))
@@ -521,10 +851,10 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFDOPEN    fdopen
     #define XFSEEK     fseek
     #define XFTELL     ftell
-    #define XREWIND(F) XFSEEK(F, 0, SEEK_SET)
     #define XFREAD     fread
     #define XFWRITE    fwrite
     #define XFCLOSE    fclose
+    #define XSEEK_SET  SEEK_SET
     #define XSEEK_END  SEEK_END
     #define XBADFILE   NULL
     #define XFGETS     fgets
@@ -541,10 +871,10 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFOPEN    FCL_FOPEN
     #define XFSEEK    FCL_FSEEK
     #define XFTELL    FCL_FTELL
-    #define XREWIND   FCL_REWIND
     #define XFREAD    FCL_FREAD
     #define XFWRITE   FCL_FWRITE
     #define XFCLOSE   FCL_FCLOSE
+    #define XSEEK_SET SEEK_SET
     #define XSEEK_END SEEK_END
     #define XBADFILE  NULL
     #define XFGETS    FCL_FGETS
@@ -580,64 +910,94 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XFDOPEN    fdopen
     #define XFSEEK     fseek
     #define XFTELL     ftell
-    #define XREWIND    rewind
     #define XFREAD     fread
     #define XFWRITE    fwrite
     #define XFCLOSE    fclose
+    #define XSEEK_SET  SEEK_SET
     #define XSEEK_END  SEEK_END
     #define XBADFILE   NULL
     #define XFGETS     fgets
     #define XFPRINTF   fprintf
     #define XFFLUSH    fflush
+    #define XFEOF(fp)  feof(fp)
+    #define XFERROR(fp) ferror(fp)
+    #define XCLEARERR(fp) clearerr(fp)
 
     #if !defined(NO_WOLFSSL_DIR)\
         && !defined(WOLFSSL_NUCLEUS) && !defined(WOLFSSL_NUCLEUS_1_2)
-    #if defined(USE_WINDOWS_API)
-        #include <sys/stat.h>
-        #define XSTAT       _stat
-        #define XS_ISREG(s) (s & _S_IFREG)
-        #define SEPARATOR_CHAR ';'
+        #if defined(USE_WINDOWS_API)
+            #include <io.h>
+            #include <sys/stat.h>
+            #ifndef XSTAT
+                #define XSTAT       _stat
+            #endif
+            #define XS_ISREG(s) (s & _S_IFREG)
+            #define SEPARATOR_CHAR ';'
+            #define XWRITE      _write
+            #define XREAD       _read
+            #define XALTHOMEVARNAME "USERPROFILE"
 
-    #elif defined(INTIME_RTOS)
-        #include <sys/stat.h>
-        #define XSTAT _stat64
-        #define XS_ISREG(s) S_ISREG(s)
-        #define SEPARATOR_CHAR ';'
-        #define XWRITE      write
-        #define XREAD       read
-        #define XCLOSE      close
+        #elif defined(ARDUINO)
+            #ifndef XSTAT
+                #define XSTAT       _stat
+            #endif
+            #define XS_ISREG(s) (s & _S_IFREG)
+            #define SEPARATOR_CHAR ';'
 
-    #elif defined(WOLFSSL_ZEPHYR)
-        #define XSTAT       fs_stat
-        #define XS_ISREG(s) (s == FS_DIR_ENTRY_FILE)
-        #define SEPARATOR_CHAR ':'
-    #elif defined(WOLFSSL_TELIT_M2MB)
-        #define XSTAT       m2mb_fs_stat
-        #define XS_ISREG(s) (s & M2MB_S_IFREG)
-        #define SEPARATOR_CHAR ':'
-    #else
-        #include <dirent.h>
-        #include <unistd.h>
-        #include <sys/stat.h>
-        #define XWRITE      write
-        #define XREAD       read
-        #define XCLOSE      close
-        #define XSTAT       stat
-        #define XS_ISREG(s) S_ISREG(s)
-        #define SEPARATOR_CHAR ':'
-    #endif
+        #elif defined(INTIME_RTOS)
+            #include <sys/stat.h>
+            #ifndef XSTAT
+            #define XSTAT _stat64
+            #endif
+            #define XS_ISREG(s) S_ISREG(s)
+            #define SEPARATOR_CHAR ';'
+            #define XWRITE      write
+            #define XREAD       read
+            #define XCLOSE      close
 
-    #ifndef XSTAT_TYPE
-        #define XSTAT_TYPE struct XSTAT
-    #endif
-    #endif
+        #elif defined(WOLFSSL_TELIT_M2MB)
+            #ifndef XSTAT
+            #define XSTAT       m2mb_fs_stat
+            #endif
+            #define XS_ISREG(s) (s & M2MB_S_IFREG)
+            #define SEPARATOR_CHAR ':'
+
+        #else
+            #ifndef NO_WOLFSSL_DIR
+                #include <dirent.h>
+            #endif
+            #include <unistd.h>
+            #include <sys/stat.h>
+            #define XWRITE      write
+            #define XREAD       read
+            #define XCLOSE      close
+            #ifndef XSTAT
+            #define XSTAT       stat
+            #endif
+            #define XS_ISREG(s) S_ISREG(s)
+            #define SEPARATOR_CHAR ':'
+        #endif
+
+        #ifndef XSTAT_TYPE
+            #define XSTAT_TYPE struct XSTAT
+        #endif
+    #endif /* !NO_WOLFSSL_DIR !WOLFSSL_NUCLEUS !WOLFSSL_NUCLEUS_1_2 */
 #endif
 
     #ifndef MAX_FILENAME_SZ
-        #define MAX_FILENAME_SZ  256 /* max file name length */
+        #define MAX_FILENAME_SZ (260 + 1) /* max file name length */
     #endif
     #ifndef MAX_PATH
-        #define MAX_PATH 256
+        #define MAX_PATH (260 + 1)
+    #endif
+    #ifndef XFEOF
+        #define XFEOF(fp)  0
+    #endif
+    #ifndef XFERROR
+        #define XFERROR(fp) 0
+    #endif
+    #ifndef XCLEARERR
+        #define XCLEARERR(fp) WC_DO_NOTHING
     #endif
 
     WOLFSSL_LOCAL int wc_FileLoad(const char* fname, unsigned char** buf,
@@ -667,6 +1027,8 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
         #define IntimeFindNext(data)  (0 == _findnext64(data))
         #define IntimeFindClose(data) (0 == _findclose64(data))
         #define IntimeFilename(ctx)   ctx->FindFileData.f_filename
+    #elif defined(ARDUINO)
+        /* TODO: board specific features */
     #else
         struct dirent* entry;
         DIR*   dir;
@@ -703,14 +1065,35 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XSPRINTF   sprintf
 #endif
 
+#ifdef USE_WINDOWS_API
+    #ifndef SOCKET_T
+        #ifdef __MINGW64__
+            typedef size_t SOCKET_T;
+        #else
+            typedef unsigned int SOCKET_T;
+        #endif
+    #endif
+    #ifndef SOCKET_INVALID
+        #define SOCKET_INVALID INVALID_SOCKET
+    #endif
+#else
+    #ifndef SOCKET_T
+        typedef int SOCKET_T;
+    #endif
+    #ifndef SOCKET_INVALID
+        #define SOCKET_INVALID (-1)
+    #endif
+#endif
 
 /* MIN/MAX MACRO SECTION */
 /* Windows API defines its own min() macro. */
 #if defined(USE_WINDOWS_API)
     #if defined(min) || defined(WOLFSSL_MYSQL_COMPATIBLE)
+        #undef  WOLFSSL_HAVE_MIN
         #define WOLFSSL_HAVE_MIN
     #endif /* min */
     #if defined(max) || defined(WOLFSSL_MYSQL_COMPATIBLE)
+        #undef  WOLFSSL_HAVE_MAX
         #define WOLFSSL_HAVE_MAX
     #endif /* max */
 #endif /* USE_WINDOWS_API */
@@ -755,18 +1138,22 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
         #define XTIME(t1)       xilinx_time((t1))
     #endif
     #include <time.h>
+    time_t xilinx_time(time_t * timer);
 
 #elif defined(HAVE_RTP_SYS)
     #include "os.h"           /* dc_rtc_api needs    */
     #include "dc_rtc_api.h"   /* to get current time */
 
-    /* uses parital <time.h> structures */
+    /* uses partial <time.h> structures */
     #define XTIME(tl)       (0)
     #define XGMTIME(c, t)   rtpsys_gmtime((c))
 
-#elif defined(WOLFSSL_DEOS)
+#elif defined(WOLFSSL_DEOS) || defined(WOLFSSL_DEOS_RTEMS)
     #include <time.h>
-
+        #ifndef XTIME
+            extern time_t deos_time(time_t* timer);
+            #define XTIME(t1) deos_time((t1))
+        #endif
 #elif defined(MICRIUM)
     #include <clk.h>
     #include <time.h>
@@ -779,6 +1166,19 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XTIME(t1)       pic32_time((t1))
     #define XGMTIME(c, t)   gmtime((c))
 
+#elif defined(FREESCALE_RTC)
+    #include <time.h>
+        #include "fsl_rtc.h"
+        #ifndef XTIME
+        #define XTIME(t1) fsl_time((t1))
+    #endif
+#elif defined(FREESCALE_SNVS_RTC)
+    #include <time.h>
+    #include "fsl_snvs_hp.h"
+    time_t fsl_time(time_t* t);
+    #ifndef XTIME
+        #define XTIME(t1) fsl_time((t1))
+    #endif
 #elif defined(FREESCALE_MQX) || defined(FREESCALE_KSDK_MQX)
     #ifdef FREESCALE_MQX_4_0
         #include <time.h>
@@ -816,6 +1216,7 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XGMTIME(c, t)   gmtime((c))
 
 #elif defined(_WIN32_WCE)
+    #define _WINSOCKAPI_ /* block inclusion of winsock.h header file */
     #include <windows.h>
     #include <stdlib.h> /* For file system */
 
@@ -845,16 +1246,31 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
 
 #elif defined(WOLFSSL_APACHE_MYNEWT)
     #include "os/os_time.h"
+    typedef long time_t;
+    extern time_t mynewt_time(time_t* timer);
     #define XTIME(t1)       mynewt_time((t1))
     #define WOLFSSL_GMTIME
     #define USE_WOLF_TM
     #define USE_WOLF_TIME_T
 
 #elif defined(WOLFSSL_ZEPHYR)
+    #include <version.h>
     #ifndef _POSIX_C_SOURCE
-        #include <posix/time.h>
+        #if KERNEL_VERSION_NUMBER >= 0x30100
+            #include <zephyr/posix/time.h>
+        #else
+            #include <posix/time.h>
+        #endif
     #else
-        #include <sys/time.h>
+        #include <time.h>
+    #endif
+
+    #if defined(CONFIG_RTC)
+        #if defined(CONFIG_PICOLIBC) || defined(CONFIG_NEWLIB_LIBC)
+            #include <zephyr/drivers/rtc.h>
+        #else
+            #warning "RTC support needs picolibc or newlib (nano)"
+        #endif
     #endif
 
     time_t z_time(time_t *timer);
@@ -885,7 +1301,7 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
 
 #elif defined(HAL_RTC_MODULE_ENABLED)
     #include <time.h>
-    WOLFSSL_LOCAL time_t* stm32_hal_time(time_t* t1);
+    WOLFSSL_LOCAL time_t stm32_hal_time(time_t* t1);
     #define XTIME(t1) stm32_hal_time(t1)
     #define WOLFSSL_GMTIME
 #else
@@ -897,7 +1313,7 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #endif
 
     /* PowerPC time_t is int */
-    #ifdef __PPC__
+    #if defined(__PPC__) || defined(__ppc__)
         #define TIME_T_NOT_64BIT
     #endif
 
@@ -927,6 +1343,11 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     #define XTIME(tl)       time((tl))
     #endif
 #endif
+
+#if defined(WOLFSSL_GMTIME) && !defined(HAVE_GMTIME_R)
+    #define HAVE_GMTIME_R
+#endif
+
 #if !defined(XGMTIME) && !defined(TIME_OVERRIDES)
     /* Always use gmtime_r if available. */
     #if defined(HAVE_GMTIME_S)
@@ -992,11 +1413,13 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     extern struct tm* XGMTIME(const time_t* timer, struct tm* tmp);
 #elif defined(WOLFSSL_GMTIME)
     struct tm* gmtime(const time_t* timer);
+    struct tm* gmtime_r(const time_t* timer, struct tm *ret);
 #endif
-#endif /* NO_ASN_TIME */
+#endif /* !NO_ASN_TIME */
 
 
-#ifndef WOLFSSL_LEANPSK
+#if (!defined(WOLFSSL_LEANPSK) && !defined(STRING_USER)) || \
+    defined(USE_WOLF_STRNSTR)
     char* mystrnstr(const char* s1, const char* s2, unsigned int n);
 #endif
 
@@ -1014,9 +1437,9 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
     /* By default, the OCTEON's global variables are all thread local. This
      * tag allows them to be shared between threads. */
     #include "cvmx-platform.h"
-    #define WOLFSSL_GLOBAL CVMX_SHARED
+    #define WC_THREADSHARED CVMX_SHARED
 #else
-    #define WOLFSSL_GLOBAL
+    #define WC_THREADSHARED
 #endif
 
 #ifdef WOLFSSL_DSP
@@ -1036,6 +1459,62 @@ WOLFSSL_API int wolfCrypt_Cleanup(void);
         #define WOLFSSL_SCE_GSCE_HANDLE g_sce
     #endif
 #endif
+
+#ifdef WOLF_C99
+    /* use alternate keyword for compatibility with -std=c99 */
+    #define XASM_VOLATILE(a) __asm__ volatile(a)
+#elif defined(__IAR_SYSTEMS_ICC__)
+    #define XASM_VOLATILE(a) asm volatile(a)
+#elif defined(__KEIL__)
+    #define XASM_VOLATILE(a) __asm volatile(a)
+#else
+    #define XASM_VOLATILE(a) __asm__ __volatile__(a)
+#endif
+
+#ifndef WOLFSSL_NO_FENCE
+    #ifdef XFENCE
+        /* use user-supplied XFENCE definition. */
+    #elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+        #include <stdatomic.h>
+        #define XFENCE() atomic_thread_fence(memory_order_seq_cst)
+    #elif defined(__GNUC__) && (__GNUC__ == 4) && \
+          defined(__GNUC_MINOR__) && (__GNUC_MINOR__ >= 1)
+        #define XFENCE() __sync_synchronize()
+    #elif (defined(__GNUC__) && (__GNUC__ >= 5)) || defined (__clang__)
+        #define XFENCE() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+    #elif defined(WOLFSSL_NO_ASM)
+        #define XFENCE() WC_DO_NOTHING
+    #elif defined (__i386__) || defined(__x86_64__)
+        #define XFENCE() XASM_VOLATILE("lfence")
+    #elif (defined (__arm__) && (__ARM_ARCH > 6)) || defined(__aarch64__)
+        #define XFENCE() XASM_VOLATILE("isb")
+    #elif defined(__riscv)
+        #define XFENCE() XASM_VOLATILE("fence")
+    #elif defined(__PPC__) || defined(__POWERPC__)
+        #define XFENCE() XASM_VOLATILE("isync; sync")
+    #else
+        #define XFENCE() WC_DO_NOTHING
+    #endif
+#else
+    #define XFENCE() WC_DO_NOTHING
+#endif
+
+
+    /* AFTER user_settings.h is loaded,
+    ** determine if POSIX multi-threaded: HAVE_PTHREAD  */
+    #if defined(SINGLE_THREADED) || defined(__MINGW32__)
+        /* Never HAVE_PTHREAD in single thread, or non-POSIX mode.
+        ** Reminder: MING32 is win32 threads, not POSIX threads */
+        #undef HAVE_PTHREAD
+    #else
+        /* _POSIX_THREADS is defined by unistd.h so this check needs to happen
+         * after we include all the platform relevant libs. */
+        #ifdef _POSIX_THREADS
+            /* HAVE_PTHREAD == POSIX threads capable and enabled. */
+            #undef HAVE_PTHREAD
+            #define HAVE_PTHREAD 1
+        #endif
+    #endif
 
 #ifdef __cplusplus
     }  /* extern "C" */

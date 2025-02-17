@@ -1,6 +1,6 @@
 /* sakke.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -43,6 +43,20 @@
 #include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/sakke.h>
 #include <wolfssl/wolfcrypt/asn_public.h>
+
+#if defined(WOLFSSL_LINUXKM) && !defined(WOLFSSL_SP_ASM)
+    /* force off unneeded vector register save/restore. */
+    #undef SAVE_VECTOR_REGISTERS
+    #define SAVE_VECTOR_REGISTERS(fail_clause) WC_DO_NOTHING
+    #undef RESTORE_VECTOR_REGISTERS
+    #define RESTORE_VECTOR_REGISTERS() WC_DO_NOTHING
+#endif
+
+#ifndef WOLFSSL_HAVE_ECC_KEY_GET_PRIV
+    /* FIPS build has replaced ecc.h. */
+    #define wc_ecc_key_get_priv(key) (&((key)->k))
+    #define WOLFSSL_HAVE_ECC_KEY_GET_PRIV
+#endif
 
 /* SAKKE Build Options:
  * WOLFSSL_SAKKE_SMALL:          Small code size version of SAKKE.
@@ -287,7 +301,7 @@ static int sakke_load_base_point(SakkeKey* key)
             err = mp_read_radix(params->base->y, key->ecc.dp->Gy, MP_RADIX_HEX);
         }
         if (err == 0) {
-            /* Affine co-ordinates have a Z of 1 in Jacobian. */
+            /* Affine coordinates have a Z of 1 in Jacobian. */
             err = mp_set(params->base->z, 1);
         }
         if (err == 0) {
@@ -306,21 +320,25 @@ static int sakke_load_base_point(SakkeKey* key)
  * @param  [in]   key   SAKKE key.
  * @param  [in]   n     MP integer that is the scalar.
  * @param  [out]  res   ECC point to hold the result.
- * @param  [in]   map   Map the result to affine co-ordinates.
+ * @param  [in]   map   Map the result to affine coordinates.
  * @return  0 on success.
  * @return  MEMORY_E when dynamic memory allocation fails.
  */
 static int sakke_mulmod_base(SakkeKey* key, const mp_int* n, ecc_point* res,
         int map)
 {
-    int err = NOT_COMPILED_IN;
+    int err = WC_NO_ERR_TRACE(NOT_COMPILED_IN);
 
 #ifdef WOLFSSL_SP_1024
     if ((key->ecc.idx != ECC_CUSTOM_IDX) &&
             (ecc_sets[key->ecc.idx].id == ECC_SAKKE_1)) {
         err = sp_ecc_mulmod_base_1024(n, res, map, key->heap);
     }
+    else
 #endif
+    {
+        err = NOT_COMPILED_IN;
+    }
 
     return err;
 }
@@ -332,21 +350,25 @@ static int sakke_mulmod_base(SakkeKey* key, const mp_int* n, ecc_point* res,
  * @param  [in]   n     MP integer that is the scalar.
  * @param  [in]   a     ECC point to add.
  * @param  [out]  res   ECC point to hold the result.
- * @param  [in]   map   Map the result to affine co-ordinates.
+ * @param  [in]   map   Map the result to affine coordinates.
  * @return  0 on success.
  * @return  MEMORY_E when dynamic memory allocation fails.
  */
 static int sakke_mulmod_base_add(SakkeKey* key, const mp_int* n,
         const ecc_point* a, ecc_point* res, int map)
 {
-    int err = NOT_COMPILED_IN;
+    int err = WC_NO_ERR_TRACE(NOT_COMPILED_IN);
 
 #ifdef WOLFSSL_SP_1024
     if ((key->ecc.idx != ECC_CUSTOM_IDX) &&
             (ecc_sets[key->ecc.idx].id == ECC_SAKKE_1)) {
         err = sp_ecc_mulmod_base_add_1024(n, a, 0, res, map, key->heap);
     }
+    else
 #endif
+    {
+        err = NOT_COMPILED_IN;
+    }
 
     return err;
 }
@@ -357,7 +379,7 @@ static int sakke_mulmod_base_add(SakkeKey* key, const mp_int* n,
  * @param  [in]   key   SAKKE key.
  * @param  [in]   n     MP integer that is the scalar.
  * @param  [out]  res   ECC point to hold the result.
- * @param  [in]   map   Map the result to affine co-ordinates.
+ * @param  [in]   map   Map the result to affine coordinates.
  * @return  0 on success.
  * @return  MEMORY_E when dynamic memory allocation fails.
  */
@@ -380,7 +402,7 @@ static int sakke_mulmod_base(SakkeKey* key, const mp_int* n, ecc_point* res,
  * @param  [in]   a     ECC point to add. Point ordinates must be in Montgomery
  *                      form.
  * @param  [out]  res   ECC point to hold the result.
- * @param  [in]   map   Map the result to affine co-ordinates.
+ * @param  [in]   map   Map the result to affine coordinates.
  * @return  0 on success.
  * @return  MEMORY_E when dynamic memory allocation fails.
  */
@@ -402,7 +424,7 @@ static int sakke_mulmod_base_add(SakkeKey* key, const mp_int* n, ecc_point* a,
                 &params->prime, mp);
     }
     if ((err == 0) && map) {
-        /* Map result back to affine co-ordinates. */
+        /* Map result back to affine coordinates. */
         err = ecc_map(res, &params->prime, mp);
     }
 
@@ -419,14 +441,14 @@ static int sakke_mulmod_base_add(SakkeKey* key, const mp_int* n, ecc_point* a,
  * @param  [in]   p      ECC point to multiply.
  * @param  [in]   table  Precomputation table for p. May be NULL.
  * @param  [out]  res    ECC point to hold the result.
- * @param  [in]   map    Map the result to affine co-ordinates.
+ * @param  [in]   map    Map the result to affine coordinates.
  * @return  0 on success.
  * @return  MEMORY_E when dynamic memory allocation fails.
  */
 static int sakke_mulmod_point(SakkeKey* key, const mp_int* n,
         const ecc_point* p, byte* table, ecc_point* res, int map)
 {
-    int err = NOT_COMPILED_IN;
+    int err = WC_NO_ERR_TRACE(NOT_COMPILED_IN);
 
 #ifdef WOLFSSL_SP_1024
     if ((key->ecc.idx != ECC_CUSTOM_IDX) &&
@@ -438,7 +460,11 @@ static int sakke_mulmod_point(SakkeKey* key, const mp_int* n,
             err = sp_ecc_mulmod_table_1024(n, p, table, res, map, key->heap);
         }
     }
+    else
 #endif
+    {
+        err = NOT_COMPILED_IN;
+    }
 
     return err;
 }
@@ -451,7 +477,7 @@ static int sakke_mulmod_point(SakkeKey* key, const mp_int* n,
  * @param  [in]   p      ECC point to multiply.
  * @param  [in]   table  Precomputation table for p. May be NULL.
  * @param  [out]  res    ECC point to hold the result.
- * @param  [in]   map    Map the result to affine co-ordinates.
+ * @param  [in]   map    Map the result to affine coordinates.
  * @return  0 on success.
  * @return  MEMORY_E when dynamic memory allocation fails.
  */
@@ -515,17 +541,19 @@ int wc_MakeSakkeKey(SakkeKey* key, WC_RNG* rng)
                 err = RNG_FAILURE_E;
             }
             if (err == 0) {
-                err = mp_rand(&key->ecc.k, digits, rng);
+                err = mp_rand(wc_ecc_key_get_priv(&key->ecc), digits, rng);
             }
             if (err == 0) {
-                err = mp_mod(&key->ecc.k, &key->params.q, &key->ecc.k);
+                err = mp_mod(wc_ecc_key_get_priv(&key->ecc), &key->params.q,
+                    wc_ecc_key_get_priv(&key->ecc));
             }
         }
-        while ((err == 0) && mp_iszero(&key->ecc.k));
+        while ((err == 0) && mp_iszero(wc_ecc_key_get_priv(&key->ecc)));
     }
     if (err == 0) {
         /* Calculate public key by multiply master secret by base point. */
-        err = sakke_mulmod_base(key, &key->ecc.k, &key->ecc.pubkey, 1);
+        err = sakke_mulmod_base(key, wc_ecc_key_get_priv(&key->ecc),
+            &key->ecc.pubkey, 1);
     }
     if (err == 0) {
         key->ecc.type = ECC_PRIVATEKEY;
@@ -561,7 +589,7 @@ int wc_MakeSakkePublicKey(SakkeKey* key, ecc_point* pub)
         err = sakke_load_base_point(key);
     }
     if (err == 0) {
-        err = sakke_mulmod_base(key, &key->ecc.k, pub, 1);
+        err = sakke_mulmod_base(key, wc_ecc_key_get_priv(&key->ecc), pub, 1);
     }
 
     return err;
@@ -593,15 +621,16 @@ int wc_ExportSakkeKey(SakkeKey* key, byte* data, word32* sz)
     }
 
     if ((err == 0) && (data == NULL)) {
-        *sz = 3 * key->ecc.dp->size;
-        err = LENGTH_ONLY_E;
+        *sz = (word32)(3 * key->ecc.dp->size);
+        err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
     }
     if ((err >= 0) && (*sz < (word32)(3 * key->ecc.dp->size))) {
         err = BUFFER_E;
     }
     if (err == 0) {
         /* Write out the secret value into key size bytes. */
-        err = mp_to_unsigned_bin_len(&key->ecc.k, data, key->ecc.dp->size);
+        err = mp_to_unsigned_bin_len(wc_ecc_key_get_priv(&key->ecc), data,
+            key->ecc.dp->size);
     }
     if (err == 0) {
         data += key->ecc.dp->size;
@@ -616,7 +645,7 @@ int wc_ExportSakkeKey(SakkeKey* key, byte* data, word32* sz)
                 key->ecc.dp->size);
     }
     if (err == 0) {
-        *sz = 3 * key->ecc.dp->size;
+        *sz = (word32)(3 * key->ecc.dp->size);
     }
 
     return err;
@@ -651,17 +680,20 @@ int wc_ImportSakkeKey(SakkeKey* key, const byte* data, word32 sz)
 
     if (err == 0) {
         /* Read the secret value from key size bytes. */
-        err = mp_read_unsigned_bin(&key->ecc.k, data, key->ecc.dp->size);
+        err = mp_read_unsigned_bin(wc_ecc_key_get_priv(&key->ecc), data,
+            (word32)key->ecc.dp->size);
     }
     if (err == 0) {
         data += key->ecc.dp->size;
         /* Read the public key point's x value from key size bytes. */
-        err = mp_read_unsigned_bin(key->ecc.pubkey.x, data, key->ecc.dp->size);
+        err = mp_read_unsigned_bin(key->ecc.pubkey.x, data,
+            (word32)key->ecc.dp->size);
     }
     if (err == 0) {
         data += key->ecc.dp->size;
         /* Read the public key point's y value from key size bytes. */
-        err = mp_read_unsigned_bin(key->ecc.pubkey.y, data, key->ecc.dp->size);
+        err = mp_read_unsigned_bin(key->ecc.pubkey.y, data,
+            (word32)key->ecc.dp->size);
     }
     if (err == 0) {
         err = mp_set(key->ecc.pubkey.z, 1);
@@ -698,18 +730,19 @@ int wc_ExportSakkePrivateKey(SakkeKey* key, byte* data, word32* sz)
     }
 
     if ((err == 0) && (data == NULL)) {
-        *sz = key->ecc.dp->size;
-        err = LENGTH_ONLY_E;
+        *sz = (word32)key->ecc.dp->size;
+        err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
     }
     if ((err >= 0) && (*sz < (word32)key->ecc.dp->size)) {
         err = BUFFER_E;
     }
     if (err == 0) {
         /* Write out the secret value into key size bytes. */
-        err = mp_to_unsigned_bin_len(&key->ecc.k, data, key->ecc.dp->size);
+        err = mp_to_unsigned_bin_len(wc_ecc_key_get_priv(&key->ecc), data,
+            key->ecc.dp->size);
     }
     if (err == 0) {
-        *sz = key->ecc.dp->size;
+        *sz = (word32)key->ecc.dp->size;
     }
 
     return err;
@@ -745,7 +778,8 @@ int wc_ImportSakkePrivateKey(SakkeKey* key, const byte* data, word32 sz)
 
     if (err == 0) {
         /* Read the secret value from key size bytes. */
-        err = mp_read_unsigned_bin(&key->ecc.k, data, key->ecc.dp->size);
+        err = mp_read_unsigned_bin(wc_ecc_key_get_priv(&key->ecc), data,
+            (word32)key->ecc.dp->size);
     }
 
     return err;
@@ -814,7 +848,7 @@ static int sakke_encode_point(ecc_point* point, word32 size, byte* data,
 
     if (data == NULL) {
         *sz = size * 2 + !raw;
-        err = LENGTH_ONLY_E;
+        err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
     }
     if ((err == 0) && (*sz < size * 2 + !raw)) {
         err = BUFFER_E;
@@ -827,12 +861,12 @@ static int sakke_encode_point(ecc_point* point, word32 size, byte* data,
         }
 
         /* Write out the point's x ordinate into key size bytes. */
-        err = mp_to_unsigned_bin_len(point->x, data, size);
+        err = mp_to_unsigned_bin_len(point->x, data, (int)size);
     }
     if (err == 0) {
         data += size;
         /* Write out the point's y ordinate into key size bytes. */
-        err = mp_to_unsigned_bin_len(point->y, data, size);
+        err = mp_to_unsigned_bin_len(point->y, data, (int)size);
     }
     if (err == 0) {
         *sz = size * 2 + !raw;
@@ -972,7 +1006,7 @@ int wc_MakeSakkeRsk(SakkeKey* key, const byte* id, word16 idSz, ecc_point* rsk)
     }
     /* a + z_T */
     if (err == 0) {
-        err = mp_addmod(a, &key->ecc.k, &key->params.q, a);
+        err = mp_addmod(a, wc_ecc_key_get_priv(&key->ecc), &key->params.q, a);
     }
     /* (a + z_T) ^ 1 modulo q */
     if (err == 0) {
@@ -990,7 +1024,7 @@ int wc_MakeSakkeRsk(SakkeKey* key, const byte* id, word16 idSz, ecc_point* rsk)
 /**
  * Encode the SAKKE Receiver Secret Key (RSK) as DER encoded public ECC key.
  *
- * Encode the RSK to send to ther receiving client.
+ * Encode the RSK to send to the receiving client.
  *
  * X and y ordinate of RSK point concatenated. Each number is zero padded to
  * key size.
@@ -1329,7 +1363,7 @@ int wc_GenerateSakkeRskTable(const SakkeKey* key, const ecc_point* rsk,
 static int sakke_pairing(const SakkeKey* key, const ecc_point* p,
     const ecc_point* q, mp_int* r, const byte* table, word32 len)
 {
-    int err = NOT_COMPILED_IN;
+    int err = WC_NO_ERR_TRACE(NOT_COMPILED_IN);
 
 #ifdef WOLFSSL_SP_1024
     if ((key->ecc.idx != ECC_CUSTOM_IDX) &&
@@ -1341,6 +1375,9 @@ static int sakke_pairing(const SakkeKey* key, const ecc_point* p,
             err = sp_Pairing_precomp_1024(p, q, r, table, len);
         }
     }
+    else {
+        err = NOT_COMPILED_IN;
+    }
 #else
     (void)key;
     (void)p;
@@ -1348,6 +1385,7 @@ static int sakke_pairing(const SakkeKey* key, const ecc_point* p,
     (void)r;
     (void)table;
     (void)len;
+    err = NOT_COMPILED_IN;
 #endif
 
     return err;
@@ -1381,7 +1419,7 @@ int wc_GenerateSakkeRskTable(const SakkeKey* key, const ecc_point* rsk,
     }
     if ((err == 0) && (table == NULL)) {
         *len = 0;
-        err = LENGTH_ONLY_E;
+        err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
     }
     if ((err == 0) && (*len != 0)) {
         err = BUFFER_E;
@@ -1885,15 +1923,27 @@ static int sakke_accumulate_line_add_one(mp_proj* v, mp_int* prime, mp_digit mp,
 static int sakke_accumulate_line_dbl(mp_proj* v, ecc_point* p, ecc_point* q,
         mp_int* prime, mp_digit mp, mp_proj* r, mp_int** t)
 {
-    int err;
+    int err = 0;
     mp_int* t1 = t[0];
     mp_int* t2 = r->z;
     mp_int* z2 = t[1];
+#ifdef WOLFSSL_SMALL_STACK
+    mp_int* l = NULL;
+    mp_int* ty = NULL;
+    l = (mp_int *)XMALLOC(sizeof(*l), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (l == NULL)
+        err = 1;
+    ty = (mp_int *)XMALLOC(sizeof(*ty), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (ty == NULL)
+        err = 1;
+#else
     mp_int tmp[2];
     mp_int* l = &tmp[0];
     mp_int* ty = &tmp[1];
+#endif
 
-    err = mp_init(l);
+    if (err == 0)
+        err = mp_init(l);
     if (err == 0) {
         err = mp_init(ty);
     }
@@ -1985,8 +2035,19 @@ static int sakke_accumulate_line_dbl(mp_proj* v, ecc_point* p, ecc_point* q,
         err = sakke_submod(p->y, t2, prime, p->y);
     }
 
+#ifdef WOLFSSL_SMALL_STACK
+    if (ty != NULL) {
+        mp_free(ty);
+        XFREE(ty, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    if (l != NULL) {
+        mp_free(l);
+        XFREE(l, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+#else
     mp_free(ty);
     mp_free(l);
+#endif
 
     return err;
 }
@@ -2018,16 +2079,36 @@ static int sakke_accumulate_line_dbl(mp_proj* v, ecc_point* p, ecc_point* q,
 static int sakke_accumulate_line_add_one(mp_proj* v, mp_int* prime, mp_digit mp,
         ecc_point* p, ecc_point* q, ecc_point* c, mp_proj* r, mp_int** t)
 {
-    int err;
+    int err = 0;
     mp_int* t1 = t[0];
     mp_int* t2 = t[1];
+#ifdef WOLFSSL_SMALL_STACK
+    mp_int* h = NULL;
+    mp_int* ty = NULL;
+    mp_int* tz = NULL;
+    mp_int* t3 = NULL;
+    h = (mp_int *)XMALLOC(sizeof(*h), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (h == NULL)
+        err = 1;
+    ty = (mp_int *)XMALLOC(sizeof(*ty), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (ty == NULL)
+        err = 1;
+    tz = (mp_int *)XMALLOC(sizeof(*tz), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (tz == NULL)
+        err = 1;
+    t3 = (mp_int *)XMALLOC(sizeof(*t3), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (t3 == NULL)
+        err = 1;
+#else
     mp_int tmp[4];
     mp_int* h = &tmp[0];
     mp_int* ty = &tmp[1];
     mp_int* tz = &tmp[2];
     mp_int* t3 = &tmp[3];
+#endif
 
-    err = mp_init_multi(h, ty, tz, t3, NULL, NULL);
+    if (err == 0)
+        err = mp_init_multi(h, ty, tz, t3, NULL, NULL);
 
     /* r.x = (q.x + p.x) * c.y */
     if (err == 0) {
@@ -2135,10 +2216,29 @@ static int sakke_accumulate_line_add_one(mp_proj* v, mp_int* prime, mp_digit mp,
         err = sakke_addmod(t3, t2, prime, c->y);
     }
 
+#ifdef WOLFSSL_SMALL_STACK
+    if (t3 != NULL) {
+        mp_free(t3);
+        XFREE(t3, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    if (tz != NULL) {
+        mp_free(tz);
+        XFREE(tz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    if (ty != NULL) {
+        mp_free(ty);
+        XFREE(ty, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    if (h != NULL) {
+        mp_free(h);
+        XFREE(h, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+#else
     mp_free(t3);
     mp_free(tz);
     mp_free(ty);
     mp_free(h);
+#endif
 
     return err;
 }
@@ -2166,10 +2266,13 @@ static int sakke_pairing(SakkeKey* key, ecc_point* p, ecc_point* q, mp_int* r,
     mp_proj* t2 = key->tmp.p3;
     mp_int* t3 = &key->tmp.m2;
     mp_int* prime = &key->params.prime;
-    mp_int* t[] = { &key->tmp.m1, t3 };
+    mp_int* t[2];
     int i;
     mp_digit mp = 0;
     SakkeKeyParams* params = &key->params;
+
+    t[0] = &key->tmp.m1;
+    t[1] = t3;
 
     (void)table;
     (void)len;
@@ -2296,7 +2399,7 @@ static int sakke_compute_point_i(SakkeKey* key, const byte* id, word16 idSz,
         ecc_point* i)
 {
     int err;
-    mp_int* b = &key->ecc.k;
+    mp_int* b = wc_ecc_key_get_priv(&key->ecc);
 
     /* Load b - ID of receiver */
     err = mp_read_unsigned_bin(b, id, idSz);
@@ -2415,7 +2518,7 @@ int wc_GetSakkeAuthSize(SakkeKey* key, word16* authSz)
     }
     if (err == 0) {
         word16 n = (word16)((mp_count_bits(&key->params.prime) + 7) / 8);
-        *authSz = 1 + 2 * n;
+        *authSz = (word16)(1 + 2 * n);
     }
 
     return err;
@@ -2436,14 +2539,18 @@ int wc_GetSakkeAuthSize(SakkeKey* key, word16* authSz)
 static int sakke_modexp(const SakkeKey* key, const mp_int* b, mp_int* e,
         mp_int* r)
 {
-    int err = NOT_COMPILED_IN;
+    int err = WC_NO_ERR_TRACE(NOT_COMPILED_IN);
 
 #ifdef WOLFSSL_SP_1024
     if ((key->ecc.idx != ECC_CUSTOM_IDX) &&
             (ecc_sets[key->ecc.idx].id == ECC_SAKKE_1)) {
         err = sp_ModExp_Fp_star_1024(b, e, r);
     }
+    else
 #endif
+    {
+        err = NOT_COMPILED_IN;
+    }
 
     return err;
 }
@@ -2513,15 +2620,24 @@ static int sakke_modexp_loop(SakkeKey* key, mp_int* b, mp_int* e, mp_proj* r,
 {
     int err;
 #ifdef WC_NO_CACHE_RESISTANT
-    mp_proj* c[2] = { r, key->tmp.p2 };
+    mp_proj* c[2];
 #else
-    mp_proj* c[3] = { r, key->tmp.p3, key->tmp.p2 };
+    mp_proj* c[3];
 #endif
     mp_int* t1 = &key->tmp.m1;
     mp_int* t2 = &key->tmp.m2;
     mp_int* by = key->tmp.p1->z;
     mp_int* prime = &key->params.prime;
     int i;
+
+#ifdef WC_NO_CACHE_RESISTANT
+    c[0] = r;
+    c[1] = key->tmp.p2;
+#else
+    c[0] = r;
+    c[1] = key->tmp.p3;
+    c[2] = key->tmp.p2;
+#endif
 
     /* Set the working value to the base in PF_p[q] */
     err = mp_montgomery_calc_normalization(c[0]->x, prime);
@@ -6046,8 +6162,8 @@ static int sakke_calc_h_v(SakkeKey* key, enum wc_HashType hashType,
  * @param  [in]      idx     Index to start XORing into.
  * @param  [in]      n       Length of data to XOR (mask) in bytes.
  */
-static void sakke_xor_in_v(const byte* v, word32 hashSz, byte* out, int idx,
-        int n)
+static void sakke_xor_in_v(const byte* v, word32 hashSz, byte* out, word32 idx,
+        word32 n)
 {
     int o;
     word32 i;
@@ -6061,10 +6177,8 @@ static void sakke_xor_in_v(const byte* v, word32 hashSz, byte* out, int idx,
     else {
         i = 0;
     }
-    o = i;
-    for (; i < hashSz; i++) {
-        out[idx + i - o] ^= v[i];
-    }
+    o = (int)i;
+    xorbuf(out + idx + i - o, v + i, hashSz - i);
 }
 
 /*
@@ -6136,7 +6250,7 @@ static int sakke_hash_to_range(SakkeKey* key, enum wc_HashType hashType,
     int hash_inited = 0;
 
     err = wc_HashInit_ex(&key->hash, hashType, key->heap, INVALID_DEVID);
-    if (err == 0)
+    if (err == 0) {
         hash_inited = 1;
 
     /* Step 1: A = hashfn( s ), where s = data | extra
@@ -6144,8 +6258,8 @@ static int sakke_hash_to_range(SakkeKey* key, enum wc_HashType hashType,
      */
 
     /* Step 2: h_0 = 00...00, a string of null bits of length hashlen bits */
-    if (err == 0)
         err = wc_HashGetDigestSize(hashType);
+    }
     if (err > 0) {
         hashSz = (word32)err;
         XMEMSET(h, 0, hashSz);
@@ -6306,8 +6420,8 @@ int wc_GetSakkePointI(SakkeKey* key, byte* data, word32* sz)
     }
 
     if ((err == 0) && (data == NULL)) {
-        *sz = key->ecc.dp->size * 2;
-        err = LENGTH_ONLY_E;
+        *sz = (word32)(key->ecc.dp->size * 2);
+        err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
     }
     if ((err == 0) && (*sz < (word32)key->ecc.dp->size * 2)) {
         err = BUFFER_E;
@@ -6323,7 +6437,7 @@ int wc_GetSakkePointI(SakkeKey* key, byte* data, word32* sz)
         err = mp_to_unsigned_bin_len(key->i.i->y, data, key->ecc.dp->size);
     }
     if (err == 0) {
-        *sz = key->ecc.dp->size * 2;
+        *sz = (word32)(key->ecc.dp->size * 2);
     }
 
     return err;
@@ -6361,12 +6475,14 @@ int wc_SetSakkePointI(SakkeKey* key, const byte* id, word16 idSz,
 
     if (err == 0) {
         /* Read the x value from key size bytes. */
-        err = mp_read_unsigned_bin(key->i.i->x, data, key->ecc.dp->size);
+        err = mp_read_unsigned_bin(key->i.i->x, data,
+            (word32)key->ecc.dp->size);
     }
     if (err == 0) {
         data += key->ecc.dp->size;
         /* Read the y value from key size bytes. */
-        err = mp_read_unsigned_bin(key->i.i->y, data, key->ecc.dp->size);
+        err = mp_read_unsigned_bin(key->i.i->y, data,
+            (word32)key->ecc.dp->size);
     }
     if (err == 0) {
         err = mp_set(key->i.i->z, 1);
@@ -6415,7 +6531,7 @@ int wc_GenerateSakkePointITable(SakkeKey* key, byte* table, word32* len)
 #else
     if ((err == 0) && (table == NULL)) {
         *len = 0;
-        err = LENGTH_ONLY_E;
+        err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
     }
     if ((err == 0) && (*len != 0)) {
         *len = 0;
@@ -6426,7 +6542,6 @@ int wc_GenerateSakkePointITable(SakkeKey* key, byte* table, word32* len)
         key->i.table = table;
         key->i.tableLen = *len;
     }
-    (void)table;
 #endif
 
     return err;
@@ -6456,7 +6571,7 @@ int wc_SetSakkePointITable(SakkeKey* key, byte* table, word32 len)
 #ifdef WOLFSSL_HAVE_SP_ECC
     if (err == 0) {
         err = sp_ecc_gen_table_1024(key->i.i, NULL, &sz, NULL);
-        if (err == LENGTH_ONLY_E) {
+        if (err == WC_NO_ERR_TRACE(LENGTH_ONLY_E)) {
             err = 0;
         }
     }
@@ -6604,7 +6719,7 @@ int wc_MakeSakkeEncapsulatedSSV(SakkeKey* key, enum wc_HashType hashType,
         n = (word16)((mp_count_bits(&key->params.prime) + 7) / 8);
 
         /* Uncompressed point */
-        outSz = 1 + 2 * n;
+        outSz = (word16)(1 + 2 * n);
 
         if ((auth != NULL) && (*authSz < outSz)) {
             err = BAD_FUNC_ARG;
@@ -6614,7 +6729,7 @@ int wc_MakeSakkeEncapsulatedSSV(SakkeKey* key, enum wc_HashType hashType,
         *authSz = outSz;
 
         if (auth == NULL) {
-            err = LENGTH_ONLY_E;
+            err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
         }
     }
 
@@ -6706,10 +6821,10 @@ int wc_GenerateSakkeSSV(SakkeKey* key, WC_RNG* rng, byte* ssv, word16* ssvSz)
         }
     }
     if (err == 0) {
-        /* Return length only if an ouput buffer is NULL. */
+        /* Return length only if an output buffer is NULL. */
         if (ssv == NULL) {
             *ssvSz = (word16) (n / 8);
-            err = LENGTH_ONLY_E;
+            err = WC_NO_ERR_TRACE(LENGTH_ONLY_E);
         }
         else {
             n = *ssvSz;
@@ -6793,7 +6908,7 @@ int wc_DeriveSakkeSSV(SakkeKey* key, enum wc_HashType hashType, byte* ssv,
     if (err == 0) {
         r = key->tmp.p2;
 
-        err = wc_ecc_import_point_der(auth, n * 2 + 1,
+        err = wc_ecc_import_point_der(auth, (word32)(n * 2 + 1),
                 wc_ecc_get_curve_idx(key->ecc.dp->id), r);
     }
 
@@ -6833,7 +6948,7 @@ int wc_DeriveSakkeSSV(SakkeKey* key, enum wc_HashType hashType, byte* ssv,
 
         err = sakke_compute_point_r(key, key->id, key->idSz, ri, n, test);
     }
-    if ((err == 0) && (XMEMCMP(auth, test, 2 * n + 1) != 0)) {
+    if ((err == 0) && (XMEMCMP(auth, test, (size_t)(2 * n + 1)) != 0)) {
         err = SAKKE_VERIFY_FAIL_E;
     }
 

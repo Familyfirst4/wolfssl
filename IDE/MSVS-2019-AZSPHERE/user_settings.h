@@ -1,6 +1,6 @@
 /* user_settings.h
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -31,9 +31,9 @@
     #ifndef SERVER_IP
         #define SERVER_IP "192.168.1.200" /* Local Test Server IP */
     #endif
-	#ifndef DEFAULT_PORT
-		#define DEFAULT_PORT 11111
-	#endif
+    #ifndef DEFAULT_PORT
+        #define DEFAULT_PORT 11111
+    #endif
     #define CERT         ca_cert_der_2048
     #define SIZEOF_CERT  sizeof_ca_cert_der_2048
     static const char msg[] = "Are you listening wolfSSL Server?";
@@ -41,9 +41,9 @@
     #ifndef SERVER_IP
         #define SERVER_IP "www.wolfssl.com"
     #endif
-	#ifndef DEFAULT_PORT
-		#define DEFAULT_PORT 443
-	#endif
+    #ifndef DEFAULT_PORT
+        #define DEFAULT_PORT 443
+    #endif
     #define CERT         wolfssl_website_root_ca
     #define SIZEOF_CERT  sizeof_wolfssl_website_root_ca
     static const char msg[] = "GET /index.html HTTP/1.1\r\n\r\n";
@@ -85,6 +85,7 @@
 
 /* Filesystem */
 #define NO_FILESYSTEM
+#define HAVE_NETDB_H
 
 /* Debug */
 #include <applibs/log.h>
@@ -92,5 +93,7 @@
 #define WOLFIO_DEBUG
 
 #define NO_MAIN_DRIVER
+#define WOLFSSL_IGNORE_FILE_WARN /* Added per peer review as a guard against
+                                  * future warnings, PR #5778 */
 
 #endif /* _USER_SETTINGS_H_ */

@@ -1,6 +1,6 @@
 /* sakke.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -31,7 +31,7 @@
 
 #ifdef WOLFCRYPT_HAVE_SAKKE
 
-#include <wolfssl/wolfcrypt/integer.h>
+#include <wolfssl/wolfcrypt/wolfmath.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/hash.h>
 #include <wolfssl/wolfcrypt/hmac.h>
@@ -64,15 +64,15 @@ typedef struct SakkeKeyParams {
     ecc_point* base;
 
     /** Bit indicate prime is set as an MP integer in SAKKE key. */
-    byte havePrime:1;
+    WC_BITFIELD havePrime:1;
     /** Bit indicates q (order) is set as an MP integer in SAKKE key. */
-    byte haveQ:1;
+    WC_BITFIELD haveQ:1;
     /** Bit indicates g (pairing base) is set as an MP integer in SAKKE key. */
-    byte haveG:1;
+    WC_BITFIELD haveG:1;
     /** Bit indicates a is set as an MP integer in SAKKE key. */
-    byte haveA:1;
+    WC_BITFIELD haveA:1;
     /** Bit indicates base point is set as an ECC point in SAKKE key. */
-    byte haveBase:1;
+    WC_BITFIELD haveBase:1;
 } SakkeKeyParams;
 
 /** Temporary values to use in SAKKE calculations. */
@@ -100,7 +100,7 @@ typedef struct SakkeKeyPointI {
     /** Table associated with point I. */
     byte* table;
     /** Length of table */
-    int tableLen;
+    word32 tableLen;
     /** Identity associated with point I. */
     byte id[SAKKE_ID_MAX_SIZE];
     /** Size of identity associated with point I. */
@@ -114,9 +114,9 @@ typedef struct SakkeKeyRsk {
     /** Table associated with point I. */
     byte* table;
     /** Length of table */
-    int tableLen;
+    word32 tableLen;
     /** Indicates whether an RSK value has been set. */
-    byte set:1;
+    WC_BITFIELD set:1;
 } SakkeKeyRsk;
 #endif
 
@@ -153,9 +153,9 @@ typedef struct SakkeKey {
     void* heap;
 
     /** Bit indicates Z, public key, is in montgomery form. */
-    byte zMont:1;
+    WC_BITFIELD zMont:1;
     /** Bit indicate MP integers have been initialized. */
-    byte mpInit:1;
+    WC_BITFIELD mpInit:1;
 } SakkeKey;
 
 #ifdef __cplusplus

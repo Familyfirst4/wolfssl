@@ -1,8 +1,8 @@
 /* memory-tls.c
  *
- * Copyright (C) 2006-2020 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
- * This file is part of wolfSSL. (formerly known as CyaSSL)
+ * This file is part of wolfSSL.
  *
  * wolfSSL is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
 /* IoT-safe client side demo
@@ -146,9 +146,12 @@ static int client_loop(void)
     #if (IOTSAFE_ID_SIZE == 1)
     byte cert_file_id, privkey_id, keypair_id, peer_pubkey_id, peer_cert_id, serv_cert_id;
     byte ca_cert_id;
-    #else
+    #elif (IOTSAFE_ID_SIZE == 2)
     word16 cert_file_id, privkey_id, keypair_id, peer_pubkey_id, peer_cert_id, serv_cert_id;
     word16 ca_cert_id;
+    #else
+    word32 cert_file_id, privkey_id, keypair_id, peer_pubkey_id, peer_cert_id, serv_cert_id;
+    word32 ca_cert_id;
     #endif
     cert_file_id = CRT_CLIENT_FILE_ID;
     privkey_id = PRIVKEY_ID;

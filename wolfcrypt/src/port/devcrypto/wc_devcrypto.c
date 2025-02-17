@@ -1,6 +1,6 @@
 /* wc_devcrypto.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -122,7 +122,7 @@ int wc_DevCryptoCreate(WC_CRYPTODEV* ctx, int type, byte* key, word32 keySz)
         case CRYPTO_SHA2_512_HMAC:
             ctx->sess.cipher = 0;
             ctx->sess.mac    = type;
-            ctx->sess.mackey    = (uint8_t*)key;
+            ctx->sess.mackey    = (byte*)key;
             ctx->sess.mackeylen = keySz;
             break;
 
@@ -175,8 +175,13 @@ int wc_DevCryptoCreate(WC_CRYPTODEV* ctx, int type, byte* key, word32 keySz)
         WOLFSSL_MSG("Error getting session info");
         return WC_DEVCRYPTO_E;
     }
-    printf("Using %s with driver %s\n", sesInfo.hash_info.cra_name,
-        sesInfo.hash_info.cra_driver_name);
+    if (ctx->sess.cipher == 0) {
+        printf("Using %s with driver %s\n", sesInfo.hash_info.cra_name,
+            sesInfo.hash_info.cra_driver_name);
+    } else {
+        printf("Using %s with driver %s\n", sesInfo.cipher_info.cra_name,
+            sesInfo.cipher_info.cra_driver_name);
+    }
 #endif
     (void)key;
     (void)keySz;

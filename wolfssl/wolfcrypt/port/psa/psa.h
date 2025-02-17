@@ -1,6 +1,6 @@
 /* psa.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -42,14 +42,7 @@
     #include <config.h>
 #endif
 
-#include <wolfssl/wolfcrypt/settings.h>
-
-/* PSA implementation takes over the Sha struct and Sha functions implementation
-   completely. Devoiding the struct of the DevId field and hooks to make
-   crypto_cb work. */
-#if !defined(WOLFSSL_PSA_NO_HASH) && defined(WOLF_CRYPTO_CB)
-#error "WOLFSSL PSA is not supported with WOLF_CRYPTO_CB"
-#endif
+#include <wolfssl/wolfcrypt/types.h>
 
 #if defined(WOLFSSL_HAVE_PSA)
 
@@ -67,12 +60,19 @@
 #include <wolfssl/ssl.h>
 #endif
 
+#ifndef PSA_ALG_NONE
+    #define PSA_ALG_NONE ((psa_algorithm_t)0)
+#endif
+#ifndef PSA_KEY_ID_NULL
+    #define PSA_KEY_ID_NULL ((psa_key_id_t)0)
+#endif
+
 #if defined(WOLFSSL_PSA_GLOBAL_LOCK)
 void PSA_LOCK(void);
 void PSA_UNLOCK(void);
 #else
-#define PSA_LOCK()
-#define PSA_UNLOCK()
+#define PSA_LOCK() WC_DO_NOTHING
+#define PSA_UNLOCK() WC_DO_NOTHING
 #endif
 
 int wc_psa_init(void);

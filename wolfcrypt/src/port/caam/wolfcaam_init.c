@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -22,15 +22,27 @@
     #include <config.h>
 #endif
 
+
+/*
+ * WOLFSSL_CAAM is used to enable CAAM support
+ *
+ * Different Hardware Ports
+ * WOLFSSL_IMX6_CAAM build for QNX + IMX6
+ * WOLFSSL_SECO_CAAM make use of NXP's SECO HSM library on i.MX8
+ * WOLFSSL_IMXRT1170_CAAM make use of NXP's CAAM driver for RT1170 series boards
+ *
+ */
 #include <wolfssl/wolfcrypt/settings.h>
 
-#if defined(WOLFSSL_IMX6_CAAM) || defined(WOLFSSL_IMX6_CAAM_RNG) || \
-    defined(WOLFSSL_IMX6UL_CAAM) || defined(WOLFSSL_IMX6_CAAM_BLOB) || \
-    defined(WOLFSSL_SECO_CAAM)
+#if defined(WOLFSSL_CAAM)
 
 #include <wolfssl/wolfcrypt/logging.h>
 #include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/port/caam/wolfcaam.h>
+
+#ifdef DEBUG_WOLFSSL
+    #include <stdio.h>
+#endif
 
 /* determine which porting header to include */
 #if defined(__INTEGRITY) || defined(INTEGRITY)
@@ -67,9 +79,10 @@ int wc_caamSetResource(IODevice ioDev)
 /* used to route crypto operations through crypto callback */
 static int wc_CAAM_router(int devId, wc_CryptoInfo* info, void* ctx)
 {
-    int ret = CRYPTOCB_UNAVAILABLE;
+    int ret = WC_NO_ERR_TRACE(CRYPTOCB_UNAVAILABLE);
 
     (void)ctx;
+    (void)devId;
     switch (info->algo_type) {
         case WC_ALGO_TYPE_PK:
             switch (info->pk.type) {
@@ -150,7 +163,7 @@ static int wc_CAAM_router(int devId, wc_CryptoInfo* info, void* ctx)
             break;
 
         case WC_ALGO_TYPE_CMAC:
-        #ifdef WOLFSSL_CAAM_CMAC
+        #if defined(WOLFSSL_CMAC) && defined(WOLFSSL_CAAM_CMAC)
         #ifdef WOLFSSL_SECO_CAAM
             if (devId != WOLFSSL_SECO_DEVID)
                 break;
@@ -170,12 +183,11 @@ static int wc_CAAM_router(int devId, wc_CryptoInfo* info, void* ctx)
             WOLFSSL_MSG("CMAC not compiled in");
             ret = NOT_COMPILED_IN;
         #endif
-        #endif /* WOLFSSL_CAAM_CMAC */
+        #endif /* WOLFSSL_CMAC && WOLFSSL_CAAM_CMAC */
             break;
 
         case WC_ALGO_TYPE_HASH:
         #ifdef WOLFSSL_CAAM_HASH
-        #ifdef WOLFSSL_SECO_CAAM
             switch(info->hash.type) {
                 #ifdef WOLFSSL_SHA224
                 case WC_HASH_TYPE_SHA224:
@@ -193,25 +205,26 @@ static int wc_CAAM_router(int devId, wc_CryptoInfo* info, void* ctx)
                               info->hash.digest);
                     break;
 
+                #ifdef WOLFSSL_SHA384
                 case WC_HASH_TYPE_SHA384:
                     ret = wc_CAAM_Sha384Hash(info->hash.sha384,
                               info->hash.in,
                               info->hash.inSz,
                               info->hash.digest);
                     break;
-
+                #endif
+                #ifdef WOLFSSL_SHA512
                 case WC_HASH_TYPE_SHA512:
                     ret = wc_CAAM_Sha512Hash(info->hash.sha512,
                               info->hash.in,
                               info->hash.inSz,
                               info->hash.digest);
                     break;
-
+                #endif
                 default:
                     WOLFSSL_MSG("Unknown or unsupported hash type");
                     ret = CRYPTOCB_UNAVAILABLE;
             }
-        #endif
         #endif /* WOLFSSL_CAAM_HASH */
         break;
 
@@ -225,13 +238,13 @@ static int wc_CAAM_router(int devId, wc_CryptoInfo* info, void* ctx)
             break;
 
         case WC_ALGO_TYPE_CIPHER:
-        #ifdef WOLFSSL_CAAM_CIPHER
+        #if defined(WOLFSSL_CAAM_CIPHER)
         #ifdef WOLFSSL_SECO_CAAM
             if (devId != WOLFSSL_SECO_DEVID)
                 break; /* only call to SECO if using WOLFSSL_SECO_DEVID */
         #endif
             switch (info->cipher.type) {
-            #if defined(HAVE_AESCCM)
+            #if defined(HAVE_AESCCM) && defined(WOLFSSL_CAAM_AESCCM)
                 case WC_CIPHER_AES_CCM:
                     if (info->cipher.enc == 1) {
                         ret = wc_CAAM_AesCcmEncrypt(
@@ -261,7 +274,7 @@ static int wc_CAAM_router(int devId, wc_CryptoInfo* info, void* ctx)
                     }
                     break;
                 #endif /* HAVE_AESCCM */
-                #if defined(HAVE_AESGCM)
+                #if defined(HAVE_AESGCM) && defined(WOLFSSL_CAAM_AESGCM)
                 case WC_CIPHER_AES_GCM:
                     if (info->cipher.enc == 1) {
                         ret = wc_CAAM_AesGcmEncrypt(
@@ -290,7 +303,7 @@ static int wc_CAAM_router(int devId, wc_CryptoInfo* info, void* ctx)
                                   info->cipher.aesgcm_dec.authInSz);
                     }
                     break;
-                #endif /* HAVE_AESGCM */
+                #endif /* HAVE_AESGCM && WOLFSSL_CAAM_AESGCM */
 
                 case WC_CIPHER_AES_CBC:
                     if (info->cipher.enc == 1) {
@@ -507,6 +520,7 @@ int wc_caamAddAndWait(CAAM_BUFFER* buf, int sz, word32 arg[4], word32 type)
 }
 
 
+#ifdef WOLFSSL_CAAM_BLOB
 /* Create a red or black blob
  *
  * mod : key modifier, expected 8 bytes for RED key types and 16 for BLACK
@@ -678,9 +692,9 @@ int wc_caamOpenBlob(byte* data, word32 dataSz, byte* out, word32* outSz)
     return wc_caamOpenBlob_ex(data, dataSz, out, outSz, WC_CAAM_BLOB_RED,
             NULL, 0);
 }
+#endif /* WOLFSSL_CAAM_BLOB */
 
-
-/* outSz gets set to key size plus 16 for mac and padding 
+/* outSz gets set to key size plus 16 for mac and padding
  * return 0 on success
  */
 int wc_caamCoverKey(byte* in, word32 inSz, byte* out, word32* outSz, int flag)
@@ -821,5 +835,4 @@ int caamReadPartition(CAAM_ADDRESS addr, unsigned char* out, int outSz)
     return 0;
 }
 
-#endif /* WOLFSSL_IMX6_CAAM || WOLFSSL_IMX6_CAAM_RNG || 
-          WOLFSSL_IMX6UL_CAAM || WOLFSSL_IMX6_CAAM_BLOB */
+#endif /* WOLFSSL_CAAM */

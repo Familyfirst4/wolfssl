@@ -1,6 +1,6 @@
 /* md5.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -65,7 +65,7 @@ enum {
 #ifdef WOLFSSL_MICROCHIP_PIC32MZ
     #include <wolfssl/wolfcrypt/port/pic32/pic32mz-crypt.h>
 #endif
-#ifdef STM32_HASH
+#if defined(STM32_HASH) && !defined(STM32_NOMD5)
     #include <wolfssl/wolfcrypt/port/st/stm32.h>
 #endif
 #ifdef WOLFSSL_ASYNC_CRYPT
@@ -80,7 +80,7 @@ enum {
 
 /* MD5 digest */
 typedef struct wc_Md5 {
-#ifdef STM32_HASH
+#if defined(STM32_HASH) && !defined(STM32_NOMD5)
     STM32_HASH_Context stmCtx;
 #else
     word32  buffLen;   /* in bytes          */
@@ -112,7 +112,7 @@ WOLFSSL_API int wc_InitMd5_ex(wc_Md5* md5, void* heap, int devId);
 WOLFSSL_API int wc_Md5Update(wc_Md5* md5, const byte* data, word32 len);
 WOLFSSL_API int wc_Md5Final(wc_Md5* md5, byte* hash);
 WOLFSSL_API void wc_Md5Free(wc_Md5* md5);
-#ifdef OPENSSL_EXTRA
+#if defined(OPENSSL_EXTRA) || defined(HAVE_CURL)
 WOLFSSL_API int wc_Md5Transform(wc_Md5* md5, const byte* data);
 #endif
 

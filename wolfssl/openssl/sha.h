@@ -1,6 +1,6 @@
 /* sha.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -27,7 +27,7 @@
 
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/wolfcrypt/types.h>
-
+#include <wolfssl/wolfcrypt/sha256.h>
 #ifdef WOLFSSL_PREFIX
 #include "prefix_sha.h"
 #endif
@@ -36,20 +36,29 @@
     extern "C" {
 #endif
 
+/* adder for HW crypto */
+#if defined(STM32_HASH)
+    #define CTX_SHA_HW_ADDER sizeof(STM32_HASH_Context)
+#elif defined(WOLFSSL_IMXRT1170_CAAM)
+    #define CTX_SHA_HW_ADDER (sizeof(caam_hash_ctx_t) + sizeof(caam_handle_t))
+#elif defined(WOLFSSL_ESP32) && \
+     !defined(NO_WOLFSSL_ESP32_CRYPT_HASH)
+    #define CTX_SHA_HW_ADDER sizeof(WC_ESP32SHA)
+#else
+    #define CTX_SHA_HW_ADDER 0
+#endif
+
+
 #ifndef NO_SHA
 typedef struct WOLFSSL_SHA_CTX {
     /* big enough to hold wolfcrypt Sha, but check on init */
-#if defined(STM32_HASH)
-    void* holder[(112 + WC_ASYNC_DEV_SIZE + sizeof(STM32_HASH_Context)) / sizeof(void*)];
-#else
-    void* holder[(112 + WC_ASYNC_DEV_SIZE) / sizeof(void*)];
-#endif
-    #if defined(WOLFSSL_DEVCRYPTO_HASH) || defined(WOLFSSL_HASH_KEEP)
+    void* holder[(112 + WC_ASYNC_DEV_SIZE + CTX_SHA_HW_ADDER) / sizeof(void*)];
+#if defined(WOLFSSL_DEVCRYPTO_HASH) || defined(WOLFSSL_HASH_KEEP)
     void* keephash_holder[sizeof(void*) + (2 * sizeof(unsigned int))];
-    #endif
-    #ifdef WOLF_CRYPTO_CB
+#endif
+#ifdef WOLF_CRYPTO_CB
     void* cryptocb_holder[(sizeof(int) + sizeof(void*) + 4) / sizeof(void*)];
-    #endif
+#endif
 } WOLFSSL_SHA_CTX;
 
 WOLFSSL_API int wolfSSL_SHA_Init(WOLFSSL_SHA_CTX* sha);
@@ -65,7 +74,7 @@ WOLFSSL_API int wolfSSL_SHA1_Update(WOLFSSL_SHA_CTX* sha, const void* input,
 WOLFSSL_API int wolfSSL_SHA1_Final(byte* output, WOLFSSL_SHA_CTX* sha);
 WOLFSSL_API int wolfSSL_SHA1_Transform(WOLFSSL_SHA_CTX* sha,
                                           const unsigned char *data);
-#if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+#if !defined(OPENSSL_COEXIST) && (defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL))
 enum {
     SHA_DIGEST_LENGTH = 20
 };
@@ -90,15 +99,9 @@ typedef WOLFSSL_SHA_CTX SHA_CTX;
 #define SHA1_Final wolfSSL_SHA1_Final
 #define SHA1_Transform wolfSSL_SHA1_Transform
 
-#endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
+#endif /* !OPENSSL_COEXIST && (OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL) */
 #endif /* !NO_SHA */
 
-/* adder for HW crypto */
-#ifdef STM32_HASH
-#define CTX_SHA2_HW_ADDER 34
-#else
-#define CTX_SHA2_HW_ADDER 0
-#endif
 
 #ifdef WOLFSSL_SHA224
 
@@ -107,15 +110,22 @@ typedef WOLFSSL_SHA_CTX SHA_CTX;
  * to Sha224, is expected to also be 16 byte aligned addresses.  */
 typedef struct WOLFSSL_SHA224_CTX {
     /* big enough to hold wolfcrypt Sha224, but check on init */
-    ALIGN16 void* holder[(274 + CTX_SHA2_HW_ADDER + WC_ASYNC_DEV_SIZE) /
-                                                                 sizeof(void*)];
+    ALIGN16 void* holder[(274 + CTX_SHA_HW_ADDER + WC_ASYNC_DEV_SIZE) /
+        sizeof(void*)];
+#if defined(WOLFSSL_DEVCRYPTO_HASH) || defined(WOLFSSL_HASH_KEEP)
+    ALIGN16 void* keephash_holder[sizeof(void*) + (2 * sizeof(unsigned int))];
+#endif
+#ifdef WOLF_CRYPTO_CB
+    ALIGN16 void* cryptocb_holder[(sizeof(int) + sizeof(void*) + 4) /
+        sizeof(void*)];
+#endif
 } WOLFSSL_SHA224_CTX;
 
 WOLFSSL_API int wolfSSL_SHA224_Init(WOLFSSL_SHA224_CTX* sha);
 WOLFSSL_API int wolfSSL_SHA224_Update(WOLFSSL_SHA224_CTX* sha, const void* input,
                            unsigned long sz);
 WOLFSSL_API int wolfSSL_SHA224_Final(byte* output, WOLFSSL_SHA224_CTX* sha);
-#if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+#if !defined(OPENSSL_COEXIST) && (defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL))
 enum {
     SHA224_DIGEST_LENGTH = 28
 };
@@ -132,7 +142,7 @@ typedef WOLFSSL_SHA224_CTX SHA224_CTX;
      * because of SHA224 enum in FIPS build. */
     #define SHA224 wolfSSL_SHA224
 #endif
-#endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
+#endif /* !OPENSSL_COEXIST && (OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL) */
 #endif /* WOLFSSL_SHA224 */
 
 #ifndef NO_SHA256
@@ -141,8 +151,15 @@ typedef WOLFSSL_SHA224_CTX SHA224_CTX;
  * to Sha256, is expected to also be 16 byte aligned addresses.  */
 typedef struct WOLFSSL_SHA256_CTX {
     /* big enough to hold wolfcrypt Sha256, but check on init */
-    ALIGN16 void* holder[(274 + CTX_SHA2_HW_ADDER + WC_ASYNC_DEV_SIZE) /
-                                                                 sizeof(void*)];
+    ALIGN16 void* holder[sizeof(wc_Sha256) /
+        sizeof(void*)];
+#if defined(WOLFSSL_DEVCRYPTO_HASH) || defined(WOLFSSL_HASH_KEEP)
+    ALIGN16 void* keephash_holder[sizeof(void*) + (2 * sizeof(unsigned int))];
+#endif
+#ifdef WOLF_CRYPTO_CB
+    ALIGN16 void* cryptocb_holder[(sizeof(int) + sizeof(void*) + 4) /
+        sizeof(void*)];
+#endif
 } WOLFSSL_SHA256_CTX;
 
 WOLFSSL_API int wolfSSL_SHA256_Init(WOLFSSL_SHA256_CTX* sha256);
@@ -151,7 +168,7 @@ WOLFSSL_API int wolfSSL_SHA256_Update(WOLFSSL_SHA256_CTX* sha, const void* input
 WOLFSSL_API int wolfSSL_SHA256_Final(byte* output, WOLFSSL_SHA256_CTX* sha);
 WOLFSSL_API int wolfSSL_SHA256_Transform(WOLFSSL_SHA256_CTX* sha256,
                                                 const unsigned char *data);
-#if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+#if !defined(OPENSSL_COEXIST) && (defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL))
 enum {
     SHA256_DIGEST_LENGTH = 32
 };
@@ -179,20 +196,26 @@ typedef WOLFSSL_SHA256_CTX SHA256_CTX;
 
     #define SHA256 wolfSSL_SHA256
 #endif
-#endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
+#endif /* !OPENSSL_COEXIST && (OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL) */
 #endif /* !NO_SHA256 */
 
 #ifdef WOLFSSL_SHA384
 typedef struct WOLFSSL_SHA384_CTX {
     /* big enough to hold wolfCrypt Sha384, but check on init */
-    void* holder[(268 + WC_ASYNC_DEV_SIZE) / sizeof(void*)];
+    void* holder[(288 + CTX_SHA_HW_ADDER + WC_ASYNC_DEV_SIZE) / sizeof(void*)];
+#if defined(WOLFSSL_DEVCRYPTO_HASH) || defined(WOLFSSL_HASH_KEEP)
+    void* keephash_holder[sizeof(void*) + (2 * sizeof(unsigned int))];
+#endif
+#ifdef WOLF_CRYPTO_CB
+    void* cryptocb_holder[(sizeof(int) + sizeof(void*) + 4) / sizeof(void*)];
+#endif
 } WOLFSSL_SHA384_CTX;
 
 WOLFSSL_API int wolfSSL_SHA384_Init(WOLFSSL_SHA384_CTX* sha);
 WOLFSSL_API int wolfSSL_SHA384_Update(WOLFSSL_SHA384_CTX* sha, const void* input,
                            unsigned long sz);
 WOLFSSL_API int wolfSSL_SHA384_Final(byte* output, WOLFSSL_SHA384_CTX* sha);
-#if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+#if !defined(OPENSSL_COEXIST) && (defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL))
 enum {
     SHA384_DIGEST_LENGTH = 48
 };
@@ -207,14 +230,20 @@ typedef WOLFSSL_SHA384_CTX SHA384_CTX;
      * build. */
     #define SHA384 wolfSSL_SHA384
 #endif
-#endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
+#endif /* !OPENSSL_COEXIST && (OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL) */
 
 #endif /* WOLFSSL_SHA384 */
 
 #ifdef WOLFSSL_SHA512
 typedef struct WOLFSSL_SHA512_CTX {
     /* big enough to hold wolfCrypt Sha384, but check on init */
-    void* holder[(288 + WC_ASYNC_DEV_SIZE) / sizeof(void*)];
+    void* holder[(288 + CTX_SHA_HW_ADDER + WC_ASYNC_DEV_SIZE) / sizeof(void*)];
+#if defined(WOLFSSL_DEVCRYPTO_HASH) || defined(WOLFSSL_HASH_KEEP)
+    void* keephash_holder[sizeof(void*) + (2 * sizeof(unsigned int))];
+#endif
+#ifdef WOLF_CRYPTO_CB
+    void* cryptocb_holder[(sizeof(int) + sizeof(void*) + 4) / sizeof(void*)];
+#endif
 } WOLFSSL_SHA512_CTX;
 
 WOLFSSL_API int wolfSSL_SHA512_Init(WOLFSSL_SHA512_CTX* sha);
@@ -223,7 +252,7 @@ WOLFSSL_API int wolfSSL_SHA512_Update(WOLFSSL_SHA512_CTX* sha,
 WOLFSSL_API int wolfSSL_SHA512_Final(byte* output, WOLFSSL_SHA512_CTX* sha);
 WOLFSSL_API int wolfSSL_SHA512_Transform(WOLFSSL_SHA512_CTX* sha512,
                                          const unsigned char* data);
-#if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+#if !defined(OPENSSL_COEXIST) && (defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL))
 enum {
     SHA512_DIGEST_LENGTH = 64
 };
@@ -239,7 +268,7 @@ typedef WOLFSSL_SHA512_CTX SHA512_CTX;
      * build. */
     #define SHA512 wolfSSL_SHA512
 #endif
-#endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
+#endif /* !OPENSSL_COEXIST && (OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL) */
 
 #if !defined(WOLFSSL_NOSHA512_224)
 typedef struct WOLFSSL_SHA512_CTX WOLFSSL_SHA512_224_CTX;
@@ -253,7 +282,7 @@ WOLFSSL_API int wolfSSL_SHA512_224_Final(byte* output,
 WOLFSSL_API int wolfSSL_SHA512_224_Transform(WOLFSSL_SHA512_CTX* sha512,
                                           const unsigned char* data);
 
-#if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+#if !defined(OPENSSL_COEXIST) && (defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL))
 #define SHA512_224_Init   wolfSSL_SHA512_224_Init
 #define SHA512_224_Update wolfSSL_SHA512_224_Update
 #define SHA512_224_Final  wolfSSL_SHA512_224_Final
@@ -262,7 +291,7 @@ WOLFSSL_API int wolfSSL_SHA512_224_Transform(WOLFSSL_SHA512_CTX* sha512,
 #if defined(NO_OLD_SHA_NAMES) && !defined(HAVE_FIPS) && !defined(HAVE_SELFTEST)
     #define SHA512_224 wolfSSL_SHA512_224
 #endif
-#endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
+#endif /* !OPENSSL_COEXIST && (OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL) */
 #endif /* !WOLFSSL_NOSHA512_224 */
 
 #if !defined(WOLFSSL_NOSHA512_256)
@@ -276,7 +305,7 @@ WOLFSSL_API int wolfSSL_SHA512_256_Final(byte* output, WOLFSSL_SHA512_256_CTX* s
 WOLFSSL_API int wolfSSL_SHA512_256_Transform(WOLFSSL_SHA512_CTX* sha512,
                                           const unsigned char* data);
 
-#if defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL)
+#if !defined(OPENSSL_COEXIST) && (defined(OPENSSL_EXTRA) || defined(OPENSSL_EXTRA_X509_SMALL))
 #define SHA512_256_Init   wolfSSL_SHA512_256_Init
 #define SHA512_256_Update wolfSSL_SHA512_256_Update
 #define SHA512_256_Final  wolfSSL_SHA512_256_Final
@@ -285,7 +314,7 @@ WOLFSSL_API int wolfSSL_SHA512_256_Transform(WOLFSSL_SHA512_CTX* sha512,
 #if defined(NO_OLD_SHA_NAMES) && !defined(HAVE_FIPS) && !defined(HAVE_SELFTEST)
     #define SHA512_256 wolfSSL_SHA512_256
 #endif
-#endif /* OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL */
+#endif /* !OPENSSL_COEXIST && (OPENSSL_EXTRA || OPENSSL_EXTRA_X509_SMALL) */
 #endif /* !WOLFSSL_NOSHA512_256 */
 
 
@@ -300,4 +329,3 @@ WOLFSSL_API int wolfSSL_SHA512_256_Transform(WOLFSSL_SHA512_CTX* sha512,
 
 
 #endif /* WOLFSSL_SHA_H_ */
-

@@ -1,6 +1,6 @@
 /* fe_operations.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -76,6 +76,10 @@ Bounds on each t[i] vary depending on context.
 WOLFSSL_LOCAL void fe_init(void);
 
 WOLFSSL_LOCAL int  curve25519(byte * q, const byte * n, const byte * p);
+#ifdef WOLFSSL_CURVE25519_BLINDING
+WOLFSSL_LOCAL int  curve25519_blind(byte * q, const byte * n, const byte* mask,
+                                    const byte * p, const byte* rz);
+#endif
 #endif
 
 /* default to be faster but take more memory */
@@ -116,32 +120,10 @@ WOLFSSL_LOCAL void fe_cmov(fe f, const fe g, int b);
 WOLFSSL_LOCAL void fe_pow22523(fe out,const fe z);
 
 /* 64 type needed for SHA512 */
-WOLFSSL_LOCAL word64 load_3(const unsigned char *in);
-WOLFSSL_LOCAL word64 load_4(const unsigned char *in);
+WOLFSSL_LOCAL sword64 load_3(const unsigned char *in);
+WOLFSSL_LOCAL sword64 load_4(const unsigned char *in);
 
 #ifdef CURVED25519_ASM
-WOLFSSL_LOCAL void fe_ge_to_p2(fe rx, fe ry, fe rz, const fe px, const fe py,
-                               const fe pz, const fe pt);
-WOLFSSL_LOCAL void fe_ge_to_p3(fe rx, fe ry, fe rz, fe rt, const fe px,
-                               const fe py, const fe pz, const fe pt);
-WOLFSSL_LOCAL void fe_ge_dbl(fe rx, fe ry, fe rz, fe rt, const fe px,
-                             const fe py, const fe pz);
-WOLFSSL_LOCAL void fe_ge_madd(fe rx, fe ry, fe rz, fe rt, const fe px,
-                              const fe py, const fe pz, const fe pt,
-                              const fe qxy2d, const fe qyplusx,
-                              const fe qyminusx);
-WOLFSSL_LOCAL void fe_ge_msub(fe rx, fe ry, fe rz, fe rt, const fe px,
-                              const fe py, const fe pz, const fe pt,
-                              const fe qxy2d, const fe qyplusx,
-                              const fe qyminusx);
-WOLFSSL_LOCAL void fe_ge_add(fe rx, fe ry, fe rz, fe rt, const fe px,
-                             const fe py, const fe pz, const fe pt, const fe qz,
-                             const fe qt2d, const fe qyplusx,
-                             const fe qyminusx);
-WOLFSSL_LOCAL void fe_ge_sub(fe rx, fe ry, fe rz, fe rt, const fe px,
-                             const fe py, const fe pz, const fe pt, const fe qz,
-                             const fe qt2d, const fe qyplusx,
-                             const fe qyminusx);
 WOLFSSL_LOCAL void fe_cmov_table(fe* r, fe* base, signed char b);
 #endif /* CURVED25519_ASM */
 #endif /* !CURVE25519_SMALL || !ED25519_SMALL */

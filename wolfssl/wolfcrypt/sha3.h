@@ -1,6 +1,6 @@
 /* sha3.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -36,12 +36,24 @@
     extern "C" {
 #endif
 
+#if FIPS_VERSION3_GE(6,0,0)
+    extern const unsigned int wolfCrypt_FIPS_sha3_ro_sanity[2];
+    WOLFSSL_LOCAL int wolfCrypt_FIPS_SHA3_sanity(void);
+#endif
+
 #ifdef WOLFSSL_ASYNC_CRYPT
     #include <wolfssl/wolfcrypt/async.h>
 #endif
 
+#ifdef STM32_HASH
+    #include <wolfssl/wolfcrypt/port/st/stm32.h>
+#endif
+
 /* in bytes */
 enum {
+    /* SHAKE-128 */
+    WC_SHA3_128_COUNT        = 21,
+
     WC_SHA3_224              = WC_HASH_TYPE_SHA3_224,
     WC_SHA3_224_DIGEST_SIZE  = 28,
     WC_SHA3_224_COUNT        = 18,
@@ -58,8 +70,10 @@ enum {
     WC_SHA3_512_DIGEST_SIZE  = 64,
     WC_SHA3_512_COUNT        =  9,
 
-    #ifndef WOLFSSL_NO_SHAKE256
+    #ifdef WOLFSSL_SHAKE128
         WC_SHAKE128          = WC_HASH_TYPE_SHAKE128,
+    #endif
+    #ifdef WOLFSSL_SHAKE256
         WC_SHAKE256          = WC_HASH_TYPE_SHAKE256,
     #endif
 
@@ -67,11 +81,14 @@ enum {
     defined(HAVE_SELFTEST_VERSION) && (HAVE_SELFTEST_VERSION >= 2)
     /* These values are used for HMAC, not SHA-3 directly.
      * They come from from FIPS PUB 202. */
+    WC_SHA3_128_BLOCK_SIZE = 168,
     WC_SHA3_224_BLOCK_SIZE = 144,
     WC_SHA3_256_BLOCK_SIZE = 136,
     WC_SHA3_384_BLOCK_SIZE = 104,
     WC_SHA3_512_BLOCK_SIZE = 72,
 #endif
+
+    WOLF_ENUM_DUMMY_LAST_ELEMENT(WC_SHA3)
 };
 
 #ifndef NO_OLD_WC_NAMES
@@ -84,8 +101,10 @@ enum {
     #define SHA3_512             WC_SHA3_512
     #define SHA3_512_DIGEST_SIZE WC_SHA3_512_DIGEST_SIZE
     #define Sha3 wc_Sha3
-    #ifndef WOLFSSL_NO_SHAKE256
+    #ifdef WOLFSSL_SHAKE128
         #define SHAKE128             WC_SHAKE128
+    #endif
+    #ifdef WOLFSSL_SHAKE256
         #define SHAKE256             WC_SHAKE256
     #endif
 #endif
@@ -109,11 +128,24 @@ struct wc_Sha3 {
 
     void*  heap;
 
+#ifdef WOLF_CRYPTO_CB
+    int    devId;
+#endif
+
+#ifdef WC_C_DYNAMIC_FALLBACK
+    void (*sha3_block)(word64 *s);
+    void (*sha3_block_n)(word64 *s, const byte* data, word32 n,
+        word64 c);
+#endif
+
 #ifdef WOLFSSL_ASYNC_CRYPT
     WC_ASYNC_DEV asyncDev;
 #endif /* WOLFSSL_ASYNC_CRYPT */
 #ifdef WOLFSSL_HASH_FLAGS
     word32 flags; /* enum wc_HashFlags in hash.h */
+#endif
+#if defined(STM32_HASH_SHA3)
+    STM32_HASH_Context stmCtx;
 #endif
 };
 
@@ -124,12 +156,11 @@ struct wc_Sha3 {
 
 #endif
 
-#ifndef WOLFSSL_NO_SHAKE256
-typedef wc_Sha3 wc_Shake;
-#endif
-
-#if defined(WOLFSSL_ARMASM) && defined(WOLFSSL_ARMASM_CRYPTO_SHA3)
-WOLFSSL_LOCAL void BlockSha3(word64 *s);
+#if defined(WOLFSSL_SHAKE128) || defined(WOLFSSL_SHAKE256)
+    #ifndef WC_SHAKE_TYPE_DEFINED
+        typedef wc_Sha3 wc_Shake;
+        #define WC_SHAKE_TYPE_DEFINED
+    #endif
 #endif
 
 WOLFSSL_API int wc_InitSha3_224(wc_Sha3* sha3, void* heap, int devId);
@@ -160,10 +191,26 @@ WOLFSSL_API void wc_Sha3_512_Free(wc_Sha3* sha3);
 WOLFSSL_API int wc_Sha3_512_GetHash(wc_Sha3* sha3, byte* hash);
 WOLFSSL_API int wc_Sha3_512_Copy(wc_Sha3* src, wc_Sha3* dst);
 
-#ifndef WOLFSSL_NO_SHAKE256
+#ifdef WOLFSSL_SHAKE128
+WOLFSSL_API int wc_InitShake128(wc_Shake* shake, void* heap, int devId);
+WOLFSSL_API int wc_Shake128_Update(wc_Shake* shake, const byte* data, word32 len);
+WOLFSSL_API int wc_Shake128_Final(wc_Shake* shake, byte* hash, word32 hashLen);
+WOLFSSL_API int wc_Shake128_Absorb(wc_Shake* shake, const byte* data,
+    word32 len);
+WOLFSSL_API int wc_Shake128_SqueezeBlocks(wc_Shake* shake, byte* out,
+    word32 blockCnt);
+WOLFSSL_API void wc_Shake128_Free(wc_Shake* shake);
+WOLFSSL_API int wc_Shake128_Copy(wc_Shake* src, wc_Sha3* dst);
+#endif
+
+#ifdef WOLFSSL_SHAKE256
 WOLFSSL_API int wc_InitShake256(wc_Shake* shake, void* heap, int devId);
 WOLFSSL_API int wc_Shake256_Update(wc_Shake* shake, const byte* data, word32 len);
 WOLFSSL_API int wc_Shake256_Final(wc_Shake* shake, byte* hash, word32 hashLen);
+WOLFSSL_API int wc_Shake256_Absorb(wc_Shake* shake, const byte* data,
+    word32 len);
+WOLFSSL_API int wc_Shake256_SqueezeBlocks(wc_Shake* shake, byte* out,
+    word32 blockCnt);
 WOLFSSL_API void wc_Shake256_Free(wc_Shake* shake);
 WOLFSSL_API int wc_Shake256_Copy(wc_Shake* src, wc_Sha3* dst);
 #endif
@@ -171,6 +218,22 @@ WOLFSSL_API int wc_Shake256_Copy(wc_Shake* src, wc_Sha3* dst);
 #ifdef WOLFSSL_HASH_FLAGS
     WOLFSSL_API int wc_Sha3_SetFlags(wc_Sha3* sha3, word32 flags);
     WOLFSSL_API int wc_Sha3_GetFlags(wc_Sha3* sha3, word32* flags);
+#endif
+
+#ifdef USE_INTEL_SPEEDUP
+WOLFSSL_LOCAL void sha3_block_n_bmi2(word64* s, const byte* data, word32 n,
+    word64 c);
+WOLFSSL_LOCAL void sha3_block_bmi2(word64* s);
+WOLFSSL_LOCAL void sha3_block_avx2(word64* s);
+WOLFSSL_LOCAL void BlockSha3(word64 *s);
+#elif defined(__aarch64__) && defined(WOLFSSL_ARMASM)
+#ifdef WOLFSSL_ARMASM_CRYPTO_SHA3
+WOLFSSL_LOCAL void BlockSha3_crypto(word64 *s);
+#endif
+WOLFSSL_LOCAL void BlockSha3_base(word64 *s);
+WOLFSSL_LOCAL void BlockSha3(word64 *s);
+#elif defined(WOLFSSL_ARMASM) || defined(WOLFSSL_RISCV_ASM)
+WOLFSSL_LOCAL void BlockSha3(word64 *s);
 #endif
 
 #ifdef __cplusplus

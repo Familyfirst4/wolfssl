@@ -1,6 +1,6 @@
 /* random.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfSSL.
  *
@@ -30,19 +30,17 @@
 
 #include <wolfssl/wolfcrypt/types.h>
 
-#if defined(HAVE_FIPS) && \
-    defined(HAVE_FIPS_VERSION) && (HAVE_FIPS_VERSION >= 2)
+#if FIPS_VERSION3_GE(2,0,0)
     #include <wolfssl/wolfcrypt/fips.h>
 #endif /* HAVE_FIPS_VERSION >= 2 */
 
-/* included for fips @wc_fips */
-#if defined(HAVE_FIPS) && \
-        (!defined(HAVE_FIPS_VERSION) || (HAVE_FIPS_VERSION < 2))
-#include <cyassl/ctaocrypt/random.h>
-#endif
-
 #ifdef __cplusplus
     extern "C" {
+#endif
+
+#if FIPS_VERSION3_GE(6,0,0)
+    extern const unsigned int wolfCrypt_FIPS_drbg_ro_sanity[2];
+    WOLFSSL_LOCAL int wolfCrypt_FIPS_DRBG_sanity(void);
 #endif
 
  /* Maximum generate block length */
@@ -113,6 +111,8 @@
      /* allow whitewood as direct RNG source using wc_GenerateSeed directly */
 #elif defined(HAVE_INTEL_RDRAND)
     /* Intel RDRAND or RDSEED */
+#elif defined(WOLF_CRYPTO_CB)
+    /* Requires registered Crypto Callback to service RNG, with devId set */
 #elif !defined(WC_NO_RNG)
     #error No RNG source defined!
 #endif
@@ -159,14 +159,12 @@ struct OS_Seed {
 #ifdef HAVE_HASHDRBG
 struct DRBG_internal {
     word32 reseedCtr;
-    word32 lastBlock;
     byte V[DRBG_SEED_LEN];
     byte C[DRBG_SEED_LEN];
-#if defined(WOLFSSL_ASYNC_CRYPT) || defined(WOLF_CRYPTO_CB)
     void* heap;
+#if defined(WOLFSSL_ASYNC_CRYPT) || defined(WOLF_CRYPTO_CB)
     int devId;
 #endif
-    byte   matchCount;
 #ifdef WOLFSSL_SMALL_STACK_CACHE
     wc_Sha256 sha256;
 #endif
@@ -211,12 +209,15 @@ WOLFSSL_API int wc_GenerateSeed(OS_Seed* os, byte* seed, word32 sz);
 #endif /* HAVE_WNR */
 
 
-WOLFSSL_ABI WOLFSSL_API WC_RNG* wc_rng_new(byte* nonce, word32 nonceSz, void* heap);
+WOLFSSL_ABI WOLFSSL_API WC_RNG* wc_rng_new(byte* nonce, word32 nonceSz,
+                                           void* heap);
+WOLFSSL_API int wc_rng_new_ex(WC_RNG **rng, byte* nonce, word32 nonceSz,
+                              void* heap, int devId);
 WOLFSSL_ABI WOLFSSL_API void wc_rng_free(WC_RNG* rng);
 
 
 #ifndef WC_NO_RNG
-WOLFSSL_API int  wc_InitRng(WC_RNG* rng);
+WOLFSSL_ABI WOLFSSL_API int  wc_InitRng(WC_RNG* rng);
 WOLFSSL_API int  wc_InitRng_ex(WC_RNG* rng, void* heap, int devId);
 WOLFSSL_API int  wc_InitRngNonce(WC_RNG* rng, byte* nonce, word32 nonceSz);
 WOLFSSL_API int  wc_InitRngNonce_ex(WC_RNG* rng, byte* nonce, word32 nonceSz,
@@ -245,8 +246,8 @@ WOLFSSL_API int  wc_FreeRng(WC_RNG* rng);
 #endif
 
 #ifdef HAVE_HASHDRBG
-    WOLFSSL_LOCAL int wc_RNG_DRBG_Reseed(WC_RNG* rng, const byte* entropy,
-                                        word32 entropySz);
+    WOLFSSL_API int wc_RNG_DRBG_Reseed(WC_RNG* rng, const byte* entropy,
+                                       word32 entropySz);
     WOLFSSL_API int wc_RNG_TestSeed(const byte* seed, word32 seedSz);
     WOLFSSL_API int wc_RNG_HealthTest(int reseed,
                                         const byte* entropyA, word32 entropyASz,
@@ -259,6 +260,19 @@ WOLFSSL_API int  wc_FreeRng(WC_RNG* rng);
                                         byte* output, word32 outputSz,
                                         void* heap, int devId);
 #endif /* HAVE_HASHDRBG */
+
+#ifdef HAVE_ENTROPY_MEMUSE
+/* Maximum entropy bits that can be produced. */
+#define MAX_ENTROPY_BITS    256
+
+/* For generating data for assessment. */
+WOLFSSL_API int wc_Entropy_GetRawEntropy(unsigned char* raw, int cnt);
+WOLFSSL_API int wc_Entropy_Get(int bits, unsigned char* entropy, word32 len);
+WOLFSSL_API int wc_Entropy_OnDemandTest(void);
+
+WOLFSSL_LOCAL int Entropy_Init(void);
+WOLFSSL_LOCAL void Entropy_Final(void);
+#endif
 
 #ifdef __cplusplus
     } /* extern "C" */

@@ -41,7 +41,7 @@
     \code
     ecc_key key;
     wc_ecc_init(&key);
-    WC_WC_RNG rng;
+    WC_RNG rng;
     wc_InitRng(&rng);
     wc_ecc_make_key(&rng, 32, &key); // initialize 32 byte ecc key
     \endcode
@@ -95,7 +95,7 @@ int wc_ecc_make_key(WC_RNG* rng, int keysize, ecc_key* key);
     \code
     ecc_key key;
     int ret;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     wc_ecc_init(&key);
     wc_InitRng(&rng);
     int curveId = ECC_SECP521R1;
@@ -127,7 +127,7 @@ int wc_ecc_make_key_ex(WC_RNG* rng, int keysize, ecc_key* key, int curve_id);
     _Example_
     \code
     ecc_key key;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     int check_result;
     wc_ecc_init(&key);
     wc_InitRng(&rng);
@@ -223,7 +223,7 @@ void wc_ecc_key_free(ecc_key* key);
     _Example_
     \code
     ecc_key priv, pub;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     byte secret[1024]; // can hold 1024 byte shared secret key
     word32 secretSz = sizeof(secret);
     int ret;
@@ -340,7 +340,7 @@ int wc_ecc_shared_secret_ex(ecc_key* private_key, ecc_point* point,
     _Example_
     \code
     ecc_key key;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     int ret, sigSz;
 
     byte sig[512]; // will hold generated signature
@@ -406,7 +406,7 @@ int wc_ecc_sign_hash(const byte* in, word32 inlen, byte* out, word32 *outlen,
     _Example_
     \code
     ecc_key key;
-    WC_WC_WC_RNG rng;
+    WC_RNG rng;
     int ret, sigSz;
     mp_int r; // destination for r component of signature.
     mp_int s; // destination for s component of signature.
@@ -572,8 +572,8 @@ int wc_ecc_init(ecc_key* key);
     \return MEMORY_E Returned if there is an error allocating memory
 
     \param key pointer to the ecc_key object to initialize
-    \param devId ID to use with async hardware
     \param heap pointer to a heap identifier
+    \param devId ID to use with crypto callbacks or async hardware. Set to INVALID_DEVID (-2) if not used
 
     _Example_
     \code
@@ -636,7 +636,8 @@ int wc_ecc_free(ecc_key* key);
 
     \brief This function frees the fixed-point cache, which can be used
     with ecc to speed up computation times. To use this functionality,
-    FP_ECC (fixed-point ecc), should be defined.
+    FP_ECC (fixed-point ecc), should be defined. Threaded applications should
+    call this function before exiting the thread.
 
     \return none No returns.
 
@@ -669,7 +670,7 @@ void wc_ecc_fp_free(void);
     _Example_
     \code
     ecc_key key;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     int is_valid;
     wc_ecc_init(&key);
     wc_InitRng(&rng);
@@ -1530,7 +1531,7 @@ int wc_ecc_sig_size(ecc_key* key);
     _Example_
     \code
     ecEncCtx* ctx;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     wc_InitRng(&rng);
     ctx = wc_ecc_ctx_new(REQ_RESP_CLIENT, &rng);
     if(ctx == NULL) {
@@ -1558,7 +1559,7 @@ ecEncCtx* wc_ecc_ctx_new(int flags, WC_RNG* rng);
     _Example_
     \code
     ecEncCtx* ctx;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     wc_InitRng(&rng);
     ctx = wc_ecc_ctx_new(REQ_RESP_CLIENT, &rng);
     // do secure communication
@@ -1588,7 +1589,7 @@ void wc_ecc_ctx_free(ecEncCtx*);
     _Example_
     \code
     ecEncCtx* ctx;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     wc_InitRng(&rng);
     ctx = wc_ecc_ctx_new(REQ_RESP_CLIENT, &rng);
     // do secure communication
@@ -1652,7 +1653,7 @@ int wc_ecc_ctx_set_algo(ecEncCtx* ctx, byte encAlgo, byte kdfAlgo,
     _Example_
     \code
     ecEncCtx* ctx;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     const byte* salt;
     wc_InitRng(&rng);
     ctx = wc_ecc_ctx_new(REQ_RESP_CLIENT, &rng);
@@ -1664,6 +1665,7 @@ int wc_ecc_ctx_set_algo(ecEncCtx* ctx, byte encAlgo, byte kdfAlgo,
 
     \sa wc_ecc_ctx_new
     \sa wc_ecc_ctx_set_peer_salt
+    \sa wc_ecc_ctx_set_kdf_salt
 */
 
 const byte* wc_ecc_ctx_get_own_salt(ecEncCtx*);
@@ -1688,7 +1690,7 @@ const byte* wc_ecc_ctx_get_own_salt(ecEncCtx*);
     _Example_
     \code
     ecEncCtx* cliCtx, srvCtx;
-    WC_WC_RNG rng;
+    WC_RNG rng;
     const byte* cliSalt, srvSalt;
     int ret;
 
@@ -1702,9 +1704,45 @@ const byte* wc_ecc_ctx_get_own_salt(ecEncCtx*);
     \endcode
 
     \sa wc_ecc_ctx_get_own_salt
+    \sa wc_ecc_ctx_set_kdf_salt
 */
 
 int wc_ecc_ctx_set_peer_salt(ecEncCtx* ctx, const byte* salt);
+
+/*!
+    \ingroup ECC
+
+    \brief This function sets the salt pointer and length to use with KDF
+    into the ecEncCtx object.
+
+    \return 0 Returned upon successfully setting the salt for the
+    ecEncCtx object.
+    \return BAD_FUNC_ARG Returned if the given ecEncCtx object is NULL
+    or if the given salt is NULL and length is not NULL.
+
+    \param ctx pointer to the ecEncCtx for which to set the salt
+    \param salt pointer to salt buffer
+    \param sz length salt in bytes
+
+    _Example_
+    \code
+    ecEncCtx* srvCtx;
+    WC_RNG rng;
+    byte cliSalt[] = { fixed salt data };
+    word32 cliSaltLen = (word32)sizeof(cliSalt);
+    int ret;
+
+    wc_InitRng(&rng);
+    cliCtx = wc_ecc_ctx_new(REQ_RESP_SERVER, &rng);
+
+    ret = wc_ecc_ctx_set_kdf_salt(&cliCtx, cliSalt, cliSaltLen);
+    \endcode
+
+    \sa wc_ecc_ctx_get_own_salt
+    \sa wc_ecc_ctx_get_peer_salt
+*/
+
+int wc_ecc_ctx_set_kdf_salt(ecEncCtx* ctx, const byte* salt, word32 sz);
 
 /*!
     \ingroup ECC
@@ -1930,7 +1968,7 @@ int wc_ecc_decrypt(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
 /*!
     \ingroup ECC
 
-    \brief Enable ECC support for non-blocking operations. Supported for 
+    \brief Enable ECC support for non-blocking operations. Supported for
         Single Precision (SP) math with the following build options:
             WOLFSSL_SP_NONBLOCK
             WOLFSSL_SP_SMALL
@@ -1940,7 +1978,7 @@ int wc_ecc_decrypt(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
     \return 0 Returned upon successfully setting the callback context the input message
 
     \param key pointer to the ecc_key object
-    \param ctx pointer to ecc_nb_ctx_t structure with stack data cache for SP 
+    \param ctx pointer to ecc_nb_ctx_t structure with stack data cache for SP
 
     _Example_
     \code
@@ -1960,7 +1998,7 @@ int wc_ecc_decrypt(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
                     &key
                 );
 
-                // TODO: Real-time work can be called here 
+                // TODO: Real-time work can be called here
             } while (ret == FP_WOULDBLOCK);
         }
         wc_ecc_free(&key);
@@ -1968,3 +2006,29 @@ int wc_ecc_decrypt(ecc_key* privKey, ecc_key* pubKey, const byte* msg,
     \endcode
 */
 int wc_ecc_set_nonblock(ecc_key *key, ecc_nb_ctx_t* ctx);
+
+/*!
+    \ingroup ECC
+
+    \brief Compare a curve which has larger key than specified size or the curve matched curve ID,
+         set a curve with smaller key size to the key.
+
+    \return 0 Returned upon successfully setting the key
+
+    \param keysize Key size in bytes
+    \param curve_id Curve ID
+
+                                                                                                        _Example_
+    \code int ret;
+    ecc_key ecc;
+
+    ret = wc_ecc_init(&ecc);
+    if (ret != 0)
+        return ret;
+        ret = wc_ecc_set_curve(&ecc, 32, ECC_SECP256R1));
+        if (ret != 0)
+            return ret;
+
+    \endcode
+*/
+int wc_ecc_set_curve(ecc_key *key, int keysize, int curve_id);

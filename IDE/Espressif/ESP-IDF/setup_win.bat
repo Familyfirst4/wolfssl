@@ -73,7 +73,7 @@ dir %WOLFSSL_ESPIDFDIR%\*.xyzzy 2> nul | findstr  \
 
 echo;
 echo Equivalalent source directory paths:
-:: show the path of the equivalent  %VALUE% (search for files that don't exist, supress error, and look for string with "\")
+:: show the path of the equivalent  %VALUE% (search for files that don't exist, suppress error, and look for string with "\")
 dir %BASEDIR%\*.xyzzy 2> nul | findstr  \
 dir %WOLFSSLLIB_TRG_DIR%\*.xyzzy 2> nul | findstr  \
 dir %WOLFSSLEXP_TRG_DIR%\*.xyzzy 2> nul | findstr  \
@@ -308,11 +308,6 @@ if %errorlevel% NEQ 0 GOTO :COPYERR
 echo;
 echo Copying %WOLFSSLEXP_TRG_DIR%\wolfssl_benchmark\main\
 mkdir %WOLFSSLEXP_TRG_DIR%\wolfssl_benchmark\main\
-xcopy %BASEDIR%\wolfcrypt\benchmark\benchmark.h              %BASEDIR%\IDE\Espressif\ESP-IDF\examples\wolfssl_benchmark\main\benchmark.h  /F /Y
-if %errorlevel% NEQ 0 GOTO :COPYERR
-
-xcopy %BASEDIR%\wolfcrypt\benchmark\benchmark.c              %BASEDIR%\IDE\Espressif\ESP-IDF\examples\wolfssl_benchmark\main\benchmark.c  /F /Y
-if %errorlevel% NEQ 0 GOTO :COPYERR
 
 xcopy %BASEDIR%\wolfcrypt\benchmark\benchmark.c              %WOLFSSLEXP_TRG_DIR%\wolfssl_benchmark\main\                                 /F /Y
 if %errorlevel% NEQ 0 GOTO :COPYERR
